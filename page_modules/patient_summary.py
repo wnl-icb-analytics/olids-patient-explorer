@@ -151,7 +151,7 @@ def render_navigation(summary):
         ("📅 Appointments", f" · {summary['appointments_last_12m']:,} in 12m", "appointments"),
         ("🧪 Results", "", "results"),
         ("📨 Referrals", f" · {summary['total_referrals']:,}", "referrals"),
-        ("🩺 Procedures", f" · {summary['total_procedures']:,}", "procedures"),
+        ("🩺 Procedure Requests", f" · {summary['total_procedures']:,}", "procedures"),
         ("🔬 Test Requests", f" · {summary['total_test_requests']:,}", "test_requests"),
     ]
 
