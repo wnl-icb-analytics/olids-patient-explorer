@@ -5,7 +5,7 @@ Patient records service for observations and medications
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-from config import TABLE_OBSERVATION, TABLE_MEDICATION_ORDER, TABLE_MEDICATION_STATEMENT, TABLE_PRACTITIONER, TABLE_CONCEPT, TABLE_CONCEPT_MAP, MAX_OBSERVATIONS
+from config import TABLE_OBSERVATION, TABLE_MEDICATION_ORDER, TABLE_MEDICATION_STATEMENT, TABLE_PRACTITIONER, TABLE_CONCEPT, MAX_OBSERVATIONS
 from database import get_connection
 
 
@@ -96,7 +96,7 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
         o.result_text,
         o.result_unit_display,
         o.is_problem,
-        COALESCE(episodicity_concept.display, o.episodicity_source_concept_id) as episodicity_display,
+        COALESCE(episodicity_concept.display, o.episodicity_source_concept_id::varchar) as episodicity_display,
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
@@ -104,11 +104,8 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
     FROM {TABLE_OBSERVATION} o
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON o.practitioner_id = p.id
-    LEFT JOIN {TABLE_CONCEPT_MAP} episodicity_map
-        ON o.episodicity_source_concept_id = episodicity_map.source_concept_id
-        AND episodicity_map.is_primary = TRUE
     LEFT JOIN {TABLE_CONCEPT} episodicity_concept
-        ON episodicity_map.target_concept_id = episodicity_concept.concept_id
+        ON o.episodicity_source_concept_id = episodicity_concept.concept_id
     WHERE {where_sql}
     ORDER BY o.clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
@@ -423,7 +420,7 @@ def get_patient_problems(person_id):
         o.mapped_concept_display,
         o.is_problem,
         o.problem_end_date,
-        COALESCE(episodicity_concept.display, o.episodicity_source_concept_id) as episodicity,
+        COALESCE(episodicity_concept.display, o.episodicity_source_concept_id::varchar) as episodicity,
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
@@ -431,11 +428,8 @@ def get_patient_problems(person_id):
     FROM {TABLE_OBSERVATION} o
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON o.practitioner_id = p.id
-    LEFT JOIN {TABLE_CONCEPT_MAP} episodicity_map
-        ON o.episodicity_source_concept_id = episodicity_map.source_concept_id
-        AND episodicity_map.is_primary = TRUE
     LEFT JOIN {TABLE_CONCEPT} episodicity_concept
-        ON episodicity_map.target_concept_id = episodicity_concept.concept_id
+        ON o.episodicity_source_concept_id = episodicity_concept.concept_id
     WHERE o.person_id = '{person_id}'
         AND o.is_problem = TRUE
         AND (o.is_problem_deleted IS NULL OR o.is_problem_deleted = FALSE)
