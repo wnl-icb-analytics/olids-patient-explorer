@@ -75,11 +75,12 @@ olids-patient-explorer/
 - `STG_OLIDS_REFERRAL_REQUEST`: Referral requests
 - `STG_OLIDS_PROCEDURE_REQUEST`: Procedure requests
 - `STG_OLIDS_ENCOUNTER`: Encounters (grouping spine for the encounters view)
+- `STG_OLIDS_DIAGNOSTIC_ORDER`: Test requests (currently empty - source
+  person_id is NULL pending an upstream backfill; the app is wired for it)
 - `STG_OLIDS_ORGANISATION`: Organisation names for referrals
 - `STG_OLIDS_PRACTITIONER`: Practitioner information
+- `STG_OLIDS_PRACTITIONER_IN_ROLE`: Practitioner roles
 - `STG_OLIDS_CONCEPT`: Concept definitions
-
-Not surfaced: `STG_OLIDS_DIAGNOSTIC_ORDER` (empty in source).
 
 **Biomarker Models** (`MODELLING.OLIDS_OBSERVATIONS`, one row per person):
 - `INT_*_LATEST` models for HbA1c, cholesterol, LDL, eGFR, creatinine,

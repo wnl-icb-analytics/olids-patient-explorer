@@ -56,6 +56,9 @@ def main():
     elif st.session_state.page == 'results':
         from page_modules.results import render_results
         render_results()
+    elif st.session_state.page == 'test_requests':
+        from page_modules.test_requests import render_test_requests
+        render_test_requests()
     else:
         # Default to search page
         st.session_state.page = 'search'

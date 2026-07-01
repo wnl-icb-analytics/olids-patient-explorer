@@ -19,6 +19,7 @@ from config import (
     TABLE_PROCEDURE_REQUEST,
     TABLE_ORGANISATION,
     TABLE_ENCOUNTER,
+    TABLE_DIAGNOSTIC_ORDER,
     MAX_OBSERVATIONS,
 )
 from database import run_query
@@ -51,6 +52,7 @@ EMPTY_RECORD_SUMMARY = {
     "total_referrals": 0,
     "total_procedures": 0,
     "total_encounters": 0,
+    "total_test_requests": 0,
 }
 
 
@@ -80,7 +82,8 @@ def get_record_summary(person_id):
         appt.appt_most_recent,
         ref.total_referrals,
         proc.total_procedures,
-        enc.total_encounters
+        enc.total_encounters,
+        diag.total_test_requests
     FROM (
         SELECT
             COUNT(*) as total_observations,
@@ -134,11 +137,16 @@ def get_record_summary(person_id):
         FROM {TABLE_ENCOUNTER}
         WHERE person_id = ?
     ) enc
+    CROSS JOIN (
+        SELECT COUNT(*) as total_test_requests
+        FROM {TABLE_DIAGNOSTIC_ORDER}
+        WHERE person_id = ?
+    ) diag
     """
 
     try:
         pid = int(person_id)
-        result = run_query(query, [pid, pid, pid, pid, pid, pid])
+        result = run_query(query, [pid, pid, pid, pid, pid, pid, pid])
         if result.empty:
             return dict(EMPTY_RECORD_SUMMARY)
 
@@ -158,6 +166,7 @@ def get_record_summary(person_id):
             "total_referrals": int(row["TOTAL_REFERRALS"]),
             "total_procedures": int(row["TOTAL_PROCEDURES"]),
             "total_encounters": int(row["TOTAL_ENCOUNTERS"]),
+            "total_test_requests": int(row["TOTAL_TEST_REQUESTS"]),
         }
     except Exception as e:
         st.error(f"Error loading record summary: {str(e)}")
@@ -669,14 +678,77 @@ def get_patient_encounter_items(person_id, date_from=None):
         ON pr.status_source_concept_id = status_concept.concept_id
     WHERE pr.person_id = ? {date_filter.replace('clinical_effective_date', 'pr.clinical_effective_date')}
 
+    UNION ALL
+
+    SELECT
+        'Test request',
+        d.encounter_id,
+        d.clinical_effective_date,
+        test_concept.display,
+        CASE
+            WHEN d.result_value IS NOT NULL THEN d.result_value::varchar
+            ELSE d.result_text
+        END,
+        FALSE
+    FROM {TABLE_DIAGNOSTIC_ORDER} d
+    LEFT JOIN {TABLE_CONCEPT} test_concept
+        ON d.diagnostic_order_source_concept_id = test_concept.concept_id
+    WHERE d.person_id = ? {date_filter.replace('clinical_effective_date', 'd.clinical_effective_date')}
+
     ORDER BY clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
     """
 
     try:
-        return run_query(query, branch_params * 4)
+        return run_query(query, branch_params * 5)
     except Exception as e:
         st.error(f"Error loading consultation items: {str(e)}")
+        return pd.DataFrame()
+
+
+def get_patient_test_requests(person_id):
+    """
+    Get test requests (diagnostic orders) for a patient.
+
+    The source table's person_id is currently NULL pending an upstream
+    backfill, so this returns no rows until that lands - the query is
+    correct for the populated table.
+
+    Args:
+        person_id: Person identifier
+
+    Returns:
+        DataFrame with test requests
+    """
+    query = f"""
+    SELECT
+        d.clinical_effective_date,
+        test_concept.display as test_display,
+        CASE
+            WHEN d.result_value IS NOT NULL THEN d.result_value::varchar
+            ELSE d.result_text
+        END as result_display,
+        d.result_date,
+        p.surname as practitioner_last_name,
+        p.first_name as practitioner_first_name,
+        p.title as practitioner_title,
+        pir.role as practitioner_role,
+        d.id
+    FROM {TABLE_DIAGNOSTIC_ORDER} d
+    LEFT JOIN {TABLE_CONCEPT} test_concept
+        ON d.diagnostic_order_source_concept_id = test_concept.concept_id
+    LEFT JOIN {TABLE_PRACTITIONER} p
+        ON d.practitioner_id = p.id
+    {PRACTITIONER_ROLE_JOIN}
+    WHERE d.person_id = ?
+    ORDER BY d.clinical_effective_date DESC
+    LIMIT {MAX_OBSERVATIONS}
+    """
+
+    try:
+        return run_query(query, [int(person_id)])
+    except Exception as e:
+        st.error(f"Error loading test requests: {str(e)}")
         return pd.DataFrame()
 
 

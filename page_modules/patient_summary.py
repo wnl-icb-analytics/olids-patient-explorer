@@ -152,6 +152,7 @@ def render_navigation(summary):
         ("🧪 Results", "", "results"),
         ("📨 Referrals", f" · {summary['total_referrals']:,}", "referrals"),
         ("🩺 Procedures", f" · {summary['total_procedures']:,}", "procedures"),
+        ("🔬 Test Requests", f" · {summary['total_test_requests']:,}", "test_requests"),
     ]
 
     cols = st.columns(4) + st.columns(4)
