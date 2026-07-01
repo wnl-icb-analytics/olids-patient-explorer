@@ -576,6 +576,9 @@ def get_patient_encounters(person_id, date_from=None):
         e.clinical_effective_date,
         enc_concept.display as encounter_type,
         e.location,
+        appt.national_slot_category_name as slot_category,
+        appt.contact_mode_display as contact_mode,
+        appt.appointment_status_display as appointment_status,
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
@@ -583,6 +586,8 @@ def get_patient_encounters(person_id, date_from=None):
     FROM {TABLE_ENCOUNTER} e
     LEFT JOIN {TABLE_CONCEPT} enc_concept
         ON e.encounter_source_concept_id = enc_concept.concept_id
+    LEFT JOIN {TABLE_APPOINTMENT} appt
+        ON e.appointment_id = appt.id
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON e.practitioner_id = p.id
     {PRACTITIONER_ROLE_JOIN}

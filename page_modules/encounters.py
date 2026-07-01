@@ -128,6 +128,18 @@ def render_encounter_section(enc, enc_items):
     location = enc['LOCATION']
     if pd.notna(location) and safe_str(location) != "N/A" and safe_str(location) != etype:
         context_parts.append(safe_str(location))
+
+    # Appointment context, present for appointment-backed encounters only.
+    # Long values (e.g. NHS data dictionary attendance descriptions) are
+    # trimmed for the caption; source can carry encoding artifacts.
+    for col in ('SLOT_CATEGORY', 'CONTACT_MODE', 'APPOINTMENT_STATUS'):
+        value = enc[col]
+        if pd.notna(value) and safe_str(value) != "N/A":
+            text = " ".join(safe_str(value).replace('�', ' ').split())
+            if len(text) > 60:
+                text = text[:57].rstrip() + "..."
+            context_parts.append(text)
+
     context_parts.append(f"{len(enc_items)} item(s)")
 
     with st.container(border=True):
