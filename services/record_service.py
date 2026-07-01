@@ -13,6 +13,7 @@ from config import (
     TABLE_CONCEPT,
     TABLE_APPOINTMENT,
     TABLE_APPOINTMENT_PRACTITIONER,
+    TABLE_ALLERGY,
     MAX_OBSERVATIONS,
 )
 from database import run_query
@@ -351,6 +352,45 @@ def get_patient_appointments(person_id, date_from=None, date_to=None, include_fu
         return run_query(query, params)
     except Exception as e:
         st.error(f"Error loading appointments: {str(e)}")
+        return pd.DataFrame()
+
+
+def get_patient_allergies(person_id):
+    """
+    Get allergy and intolerance records for a patient.
+
+    Includes 'No known allergy' style records (statements of absence);
+    callers separate these from actual allergies for display.
+    clinical_status/verification_status/category are not selected as they
+    are unpopulated in the source.
+
+    Args:
+        person_id: Person identifier
+
+    Returns:
+        DataFrame with allergy records
+    """
+    query = f"""
+    SELECT
+        a.clinical_effective_date,
+        a.mapped_concept_code,
+        COALESCE(a.mapped_concept_display, a.source_display) as allergy_display,
+        a.is_confidential,
+        p.surname as practitioner_last_name,
+        p.first_name as practitioner_first_name,
+        p.title as practitioner_title,
+        a.id
+    FROM {TABLE_ALLERGY} a
+    LEFT JOIN {TABLE_PRACTITIONER} p
+        ON a.practitioner_id = p.id
+    WHERE a.person_id = ?
+    ORDER BY a.clinical_effective_date DESC
+    """
+
+    try:
+        return run_query(query, [int(person_id)])
+    except Exception as e:
+        st.error(f"Error loading allergies: {str(e)}")
         return pd.DataFrame()
 
 

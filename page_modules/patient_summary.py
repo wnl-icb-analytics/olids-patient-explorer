@@ -55,6 +55,11 @@ def render_patient_summary():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # Allergies: safety-critical, always loaded (small keyed query)
+    render_allergies_panel(person_id)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
     # Navigation buttons to different views
     col1, col2, col3 = st.columns(3)
 
@@ -397,6 +402,72 @@ def render_ltc_summary(person_id):
 
         st.markdown(badges_html, unsafe_allow_html=True)
         st.markdown("")
+
+
+def render_allergies_panel(person_id):
+    """
+    Render allergies and intolerances.
+
+    'No known allergy' records are statements of absence, so they are
+    separated from actual allergy records rather than listed alongside
+    them. No inference is made when both exist - both are shown.
+
+    Args:
+        person_id: Person identifier
+    """
+    from services.record_service import get_patient_allergies
+    from utils.helpers import format_practitioner_name
+
+    st.markdown("### ⚠️ Allergies & Intolerances")
+
+    allergies = get_patient_allergies(person_id)
+
+    if allergies.empty:
+        st.warning("No allergy information recorded for this patient")
+        return
+
+    # Statements of absence ('No known allergy', 'No known drug allergy', ...)
+    is_nka = allergies['ALLERGY_DISPLAY'].str.lower().str.startswith('no known', na=False)
+    actual = allergies[~is_nka]
+    nka = allergies[is_nka]
+
+    if actual.empty:
+        latest_nka = format_date(nka['CLINICAL_EFFECTIVE_DATE'].max())
+        st.success(f"No known allergies (most recently recorded {latest_nka})")
+        return
+
+    st.markdown(f"**{len(actual):,} allergy/intolerance record(s)**")
+
+    display_df = actual.copy()
+    display_df['DATE_DISPLAY'] = display_df['CLINICAL_EFFECTIVE_DATE'].apply(format_date)
+    display_df['ALLERGY'] = display_df.apply(
+        lambda row: ("🔒 " if row['IS_CONFIDENTIAL'] else "") + safe_str(row['ALLERGY_DISPLAY']),
+        axis=1
+    )
+    display_df['PRACTITIONER'] = display_df.apply(
+        lambda row: format_practitioner_name(
+            row['PRACTITIONER_LAST_NAME'],
+            row['PRACTITIONER_FIRST_NAME'],
+            row['PRACTITIONER_TITLE']
+        ),
+        axis=1
+    )
+
+    display_df = display_df[['DATE_DISPLAY', 'ALLERGY', 'PRACTITIONER']]
+    display_df.columns = ['Date', 'Allergy / Intolerance', 'Recorded By']
+
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    if display_df['Allergy / Intolerance'].str.startswith('🔒').any():
+        st.caption("🔒 marks records flagged confidential in the source system")
+
+    if not nka.empty:
+        latest_nka = format_date(nka['CLINICAL_EFFECTIVE_DATE'].max())
+        st.caption(f"'No known allergy' was also recorded for this patient, most recently {latest_nka}")
 
 
 def format_problem_display(row):
