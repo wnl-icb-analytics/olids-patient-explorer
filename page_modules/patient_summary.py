@@ -116,8 +116,11 @@ def render_patient_header(patient, person_id):
             st.caption(born)
 
         with col3:
-            st.markdown(f"**{safe_str(patient['ETHNICITY_SUBCATEGORY'])}**")
-            st.caption(safe_str(patient['ETHNICITY_CATEGORY']))
+            eth_sub = safe_str(patient['ETHNICITY_SUBCATEGORY'])
+            eth_cat = safe_str(patient['ETHNICITY_CATEGORY'])
+            st.markdown(f"**{eth_sub}**")
+            if eth_cat != eth_sub:
+                st.caption(eth_cat)
 
         with col4:
             st.markdown(f"**{safe_str(patient['PRACTICE_NAME'])}**")
@@ -133,12 +136,13 @@ def render_navigation(summary):
     Args:
         summary: Record summary dictionary from get_record_summary
     """
+    # Count-less Results sits in the shorter second row to keep the grid tidy
     nav_items = [
         ("📊 Observations", f" · {summary['total_observations']:,}", "observations"),
-        ("🧪 Results", "", "results"),
         ("💊 Medications", f" · {summary['current_medications']:,} current", "medications"),
         ("📅 Appointments", f" · {summary['appointments_last_12m']:,} in 12m", "appointments"),
         ("🗒️ Encounters", f" · {summary['total_encounters']:,}", "encounters"),
+        ("🧪 Results", "", "results"),
         ("📨 Referrals", f" · {summary['total_referrals']:,}", "referrals"),
         ("🩺 Procedures", f" · {summary['total_procedures']:,}", "procedures"),
     ]
@@ -180,8 +184,11 @@ def render_core_demographics(patient):
 
     with col3:
         st.markdown("**Ethnicity**")
-        st.markdown(safe_str(patient['ETHNICITY_SUBCATEGORY']))
-        st.markdown(f"<small>{safe_str(patient['ETHNICITY_CATEGORY'])}</small>", unsafe_allow_html=True)
+        eth_sub = safe_str(patient['ETHNICITY_SUBCATEGORY'])
+        eth_cat = safe_str(patient['ETHNICITY_CATEGORY'])
+        st.markdown(eth_sub)
+        if eth_cat != eth_sub:
+            st.markdown(f"<small>{eth_cat}</small>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -385,8 +392,11 @@ def render_ltc_summary(person_id):
             st.caption("Not on any condition register")
             return
 
-        # One compact line per clinical domain
-        for domain in sorted(ltc_data['CLINICAL_DOMAIN'].unique()):
+        # One compact line per clinical domain, split across two columns
+        domains = sorted(ltc_data['CLINICAL_DOMAIN'].unique())
+        columns = st.columns(2) if len(domains) > 1 else [st.container()]
+
+        for i, domain in enumerate(domains):
             domain_conditions = ltc_data[ltc_data['CLINICAL_DOMAIN'] == domain]
 
             badges_html = ""
@@ -396,10 +406,11 @@ def render_ltc_summary(person_id):
                 earliest = format_date(condition['EARLIEST_DIAGNOSIS_DATE'])
                 badges_html += f'<span class="condition-badge {qof_class}">{condition["CONDITION_NAME"]}{qof_badge} <small>· Dx {earliest}</small></span>'
 
-            st.markdown(
-                f'<span style="font-weight: 600; margin-right: 8px;">{domain}</span>{badges_html}',
-                unsafe_allow_html=True
-            )
+            with columns[i % len(columns)]:
+                st.markdown(
+                    f'<span style="font-weight: 600; margin-right: 8px;">{domain}</span>{badges_html}',
+                    unsafe_allow_html=True
+                )
 
 
 def _value_or(value, default="Not recorded"):
