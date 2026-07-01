@@ -29,6 +29,7 @@ TABLE_CONCEPT_MAP = f"{DB_STAGING}.STG_OLIDS_CONCEPT_MAP"
 TABLE_ALLERGY = f"{DB_STAGING}.STG_OLIDS_ALLERGY_INTOLERANCE"
 TABLE_REFERRAL = f"{DB_STAGING}.STG_OLIDS_REFERRAL_REQUEST"
 TABLE_ORGANISATION = f"{DB_STAGING}.STG_OLIDS_ORGANISATION"
+TABLE_ENCOUNTER = f"{DB_STAGING}.STG_OLIDS_ENCOUNTER"
 TABLE_PROCEDURE_REQUEST = f"{DB_STAGING}.STG_OLIDS_PROCEDURE_REQUEST"
 
 # Person-level analytics marts (one row per person unless noted)
@@ -74,6 +75,16 @@ PAST_MEDICATIONS_DATE_RANGE_OPTIONS = {
     "1 year": 365,
     "All": None
 }
+
+# Date range options for consultations
+CONSULTATION_DATE_RANGE_OPTIONS = {
+    "Last 3 months": 90,
+    "Last 12 months": 365,
+    "All time": None
+}
+
+# Maximum consultation groups rendered on the consultations page
+MAX_CONSULTATION_GROUPS = 100
 
 # Custom CSS for styling
 CUSTOM_CSS = """

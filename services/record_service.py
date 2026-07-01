@@ -17,6 +17,7 @@ from config import (
     TABLE_REFERRAL,
     TABLE_PROCEDURE_REQUEST,
     TABLE_ORGANISATION,
+    TABLE_ENCOUNTER,
     MAX_OBSERVATIONS,
 )
 from database import run_query
@@ -33,6 +34,9 @@ EMPTY_RECORD_SUMMARY = {
     "appointments_last_12m": 0,
     "appt_earliest": None,
     "appt_most_recent": None,
+    "total_referrals": 0,
+    "total_procedures": 0,
+    "total_encounters": 0,
 }
 
 
@@ -59,7 +63,10 @@ def get_record_summary(person_id):
         appt.total_appointments,
         appt.appointments_last_12m,
         appt.appt_earliest,
-        appt.appt_most_recent
+        appt.appt_most_recent,
+        ref.total_referrals,
+        proc.total_procedures,
+        enc.total_encounters
     FROM (
         SELECT
             COUNT(*) as total_observations,
@@ -98,11 +105,26 @@ def get_record_summary(person_id):
         FROM {TABLE_APPOINTMENT}
         WHERE person_id = ?
     ) appt
+    CROSS JOIN (
+        SELECT COUNT(*) as total_referrals
+        FROM {TABLE_REFERRAL}
+        WHERE person_id = ?
+    ) ref
+    CROSS JOIN (
+        SELECT COUNT(*) as total_procedures
+        FROM {TABLE_PROCEDURE_REQUEST}
+        WHERE person_id = ?
+    ) proc
+    CROSS JOIN (
+        SELECT COUNT(*) as total_encounters
+        FROM {TABLE_ENCOUNTER}
+        WHERE person_id = ?
+    ) enc
     """
 
     try:
         pid = int(person_id)
-        result = run_query(query, [pid, pid, pid])
+        result = run_query(query, [pid, pid, pid, pid, pid, pid])
         if result.empty:
             return dict(EMPTY_RECORD_SUMMARY)
 
@@ -119,6 +141,9 @@ def get_record_summary(person_id):
             "appointments_last_12m": int(row["APPOINTMENTS_LAST_12M"]),
             "appt_earliest": row["APPT_EARLIEST"],
             "appt_most_recent": row["APPT_MOST_RECENT"],
+            "total_referrals": int(row["TOTAL_REFERRALS"]),
+            "total_procedures": int(row["TOTAL_PROCEDURES"]),
+            "total_encounters": int(row["TOTAL_ENCOUNTERS"]),
         }
     except Exception as e:
         st.error(f"Error loading record summary: {str(e)}")
@@ -487,6 +512,143 @@ def get_patient_procedures(person_id):
         return run_query(query, [int(person_id)])
     except Exception as e:
         st.error(f"Error loading procedures: {str(e)}")
+        return pd.DataFrame()
+
+
+def get_patient_encounters(person_id, date_from=None):
+    """
+    Get encounters (consultations) for a patient.
+
+    Args:
+        person_id: Person identifier
+        date_from: Start date filter (optional)
+
+    Returns:
+        DataFrame with encounters
+    """
+    where_clauses = ["e.person_id = ?"]
+    params = [int(person_id)]
+
+    if date_from:
+        where_clauses.append("e.clinical_effective_date >= ?")
+        params.append(str(date_from))
+
+    where_sql = " AND ".join(where_clauses)
+
+    query = f"""
+    SELECT
+        e.id,
+        e.clinical_effective_date,
+        enc_concept.display as encounter_type,
+        e.location,
+        p.surname as practitioner_last_name,
+        p.first_name as practitioner_first_name,
+        p.title as practitioner_title
+    FROM {TABLE_ENCOUNTER} e
+    LEFT JOIN {TABLE_CONCEPT} enc_concept
+        ON e.encounter_source_concept_id = enc_concept.concept_id
+    LEFT JOIN {TABLE_PRACTITIONER} p
+        ON e.practitioner_id = p.id
+    WHERE {where_sql}
+    ORDER BY e.clinical_effective_date DESC
+    LIMIT {MAX_OBSERVATIONS}
+    """
+
+    try:
+        return run_query(query, params)
+    except Exception as e:
+        st.error(f"Error loading consultations: {str(e)}")
+        return pd.DataFrame()
+
+
+def get_patient_encounter_items(person_id, date_from=None):
+    """
+    Get clinical events (observations, medication orders, referrals,
+    procedure requests) with their encounter linkage, for grouping into
+    a consultation view. One UNION ALL round-trip.
+
+    Args:
+        person_id: Person identifier
+        date_from: Start date filter (optional)
+
+    Returns:
+        DataFrame with columns ITEM_TYPE, ENCOUNTER_ID,
+        CLINICAL_EFFECTIVE_DATE, DETAIL, DETAIL_VALUE, IS_CONFIDENTIAL
+    """
+    pid = int(person_id)
+    date_filter = ""
+    branch_params = [pid]
+    if date_from:
+        date_filter = "AND clinical_effective_date >= ?"
+        branch_params.append(str(date_from))
+
+    query = f"""
+    SELECT
+        'Observation' as item_type,
+        encounter_id,
+        clinical_effective_date,
+        mapped_concept_display as detail,
+        CASE
+            WHEN result_value IS NOT NULL
+            THEN result_value::varchar || COALESCE(' ' || result_unit_display, '')
+            ELSE result_text
+        END as detail_value,
+        is_confidential
+    FROM {TABLE_OBSERVATION}
+    WHERE person_id = ? {date_filter}
+
+    UNION ALL
+
+    SELECT
+        'Medication',
+        encounter_id,
+        clinical_effective_date,
+        mapped_concept_display,
+        dose,
+        is_confidential
+    FROM {TABLE_MEDICATION_ORDER}
+    WHERE person_id = ? {date_filter}
+
+    UNION ALL
+
+    SELECT
+        'Referral',
+        r.encounter_id,
+        r.clinical_effective_date,
+        referral_concept.display,
+        priority_concept.display,
+        FALSE
+    FROM {TABLE_REFERRAL} r
+    LEFT JOIN {TABLE_CONCEPT} referral_concept
+        ON r.referral_request_source_concept_id = referral_concept.concept_id
+    LEFT JOIN {TABLE_CONCEPT} priority_concept
+        ON r.referral_request_priority_source_concept_id = priority_concept.concept_id
+    WHERE r.person_id = ? {date_filter.replace('clinical_effective_date', 'r.clinical_effective_date')}
+
+    UNION ALL
+
+    SELECT
+        'Procedure',
+        pr.encounter_id,
+        pr.clinical_effective_date,
+        COALESCE(pr.description, proc_concept.display),
+        status_concept.display,
+        pr.is_confidential
+    FROM {TABLE_PROCEDURE_REQUEST} pr
+    LEFT JOIN {TABLE_CONCEPT} proc_concept
+        ON pr.procedure_request_source_concept_id = proc_concept.concept_id
+    LEFT JOIN {TABLE_CONCEPT} status_concept
+        ON pr.status_source_concept_id = status_concept.concept_id
+    WHERE pr.person_id = ? {date_filter.replace('clinical_effective_date', 'pr.clinical_effective_date')}
+
+    ORDER BY clinical_effective_date DESC
+    LIMIT {MAX_OBSERVATIONS}
+    """
+
+    try:
+        return run_query(query, branch_params * 4)
+    except Exception as e:
+        st.error(f"Error loading consultation items: {str(e)}")
         return pd.DataFrame()
 
 

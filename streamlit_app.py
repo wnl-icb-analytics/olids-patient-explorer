@@ -50,6 +50,9 @@ def main():
     elif st.session_state.page == 'procedures':
         from page_modules.procedures import render_procedures
         render_procedures()
+    elif st.session_state.page == 'consultations':
+        from page_modules.consultations import render_consultations
+        render_consultations()
     else:
         # Default to search page
         st.session_state.page = 'search'

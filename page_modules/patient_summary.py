@@ -45,48 +45,15 @@ def render_patient_summary():
     patient = demographics.iloc[0]
     person_id = int(patient['PERSON_ID'])
 
-    render_patient_header(patient)
+    # Banner includes the allergy status line (safety-critical, always visible)
+    render_patient_header(patient, person_id)
 
-    # Allergies: safety-critical, always visible (small keyed query)
-    render_allergies_panel(person_id)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Record summary: single combined aggregate query (the expensive bit)
+    # Record summary: single combined aggregate query (the expensive bit);
+    # counts render on the navigation cards
     with st.spinner("Loading record summary..."):
         summary = get_record_summary(person_id)
 
-    render_summary_metrics(summary)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Navigation buttons to different views
-    col1, col2, col3, col4, col5 = st.columns(5)
-
-    with col1:
-        if st.button("📊 Observations", use_container_width=True, type="primary"):
-            st.session_state.page = "observations"
-            st.rerun()
-
-    with col2:
-        if st.button("💊 Medications", use_container_width=True, type="primary"):
-            st.session_state.page = "medications"
-            st.rerun()
-
-    with col3:
-        if st.button("📅 Appointments", use_container_width=True, type="primary"):
-            st.session_state.page = "appointments"
-            st.rerun()
-
-    with col4:
-        if st.button("📨 Referrals", use_container_width=True, type="primary"):
-            st.session_state.page = "referrals"
-            st.rerun()
-
-    with col5:
-        if st.button("🩺 Procedures", use_container_width=True, type="primary"):
-            st.session_state.page = "procedures"
-            st.rerun()
+    render_navigation(summary)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -106,7 +73,7 @@ def render_patient_summary():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Demographic & registration detail last (clinical content first)
-    st.markdown("### Patient Details")
+    st.markdown("#### Patient Details")
     tab1, tab2, tab3, tab4 = st.tabs(["👤 Core Demographics", "🏥 Registration", "📍 Geography", "🗣️ Language"])
 
     with tab1:
@@ -124,12 +91,13 @@ def render_patient_summary():
         render_language_info(patient)
 
 
-def render_patient_header(patient):
+def render_patient_header(patient, person_id):
     """
-    Render a dense EPR-style patient banner.
+    Render a dense EPR-style patient banner with the allergy status line.
 
     Args:
         patient: Patient demographics row
+        person_id: Person identifier (for the allergy lookup)
     """
     badge_html = get_status_badge_html(
         patient['IS_ACTIVE'],
@@ -159,40 +127,42 @@ def render_patient_header(patient):
             st.markdown(f"**{safe_str(patient['PRACTICE_NAME'])}**")
             st.caption(f"{safe_str(patient['PRACTICE_CODE'])} · {safe_str(patient['PCN_NAME'])}")
 
+        render_allergies_panel(person_id)
 
-def render_summary_metrics(summary):
+
+def render_navigation(summary):
     """
-    Render summary metrics.
+    Render navigation cards with record counts.
 
     Args:
         summary: Record summary dictionary from get_record_summary
     """
-    st.markdown("### Record Summary")
+    nav_items = [
+        ("📊 Observations", f"{summary['total_observations']:,}", "observations"),
+        ("💊 Medications", f"{summary['current_medications']:,} current", "medications"),
+        ("📅 Appointments", f"{summary['appointments_last_12m']:,} in 12m", "appointments"),
+        ("🗒️ Consultations", f"{summary['total_encounters']:,}", "consultations"),
+        ("📨 Referrals", f"{summary['total_referrals']:,}", "referrals"),
+        ("🩺 Procedures", f"{summary['total_procedures']:,}", "procedures"),
+    ]
 
-    col1, col2, col3, col4 = st.columns(4)
+    cols = st.columns(3) + st.columns(3)
+    for col, (label, count, page) in zip(cols, nav_items):
+        with col:
+            if st.button(f"{label} · {count}", use_container_width=True, type="primary"):
+                st.session_state.page = page
+                st.rerun()
 
-    with col1:
-        st.metric("Observations", f"{summary['total_observations']:,}")
-
-    with col2:
-        st.metric("Medications (Current)", f"{summary['current_medications']:,}")
-        st.caption(f"Total: {summary['total_medications']:,}")
-
-    with col3:
-        st.metric("Appointments (12m)", f"{summary['appointments_last_12m']:,}")
-        st.caption(f"All time: {summary['total_appointments']:,}")
-
-    with col4:
-        most_recent = max(
-            filter(pd.notna, [
-                summary['obs_most_recent'],
-                summary['med_most_recent'],
-                summary['appt_most_recent'],
-            ]),
-            default=None
-        )
-        most_recent_str = format_date(most_recent) if most_recent is not None else "N/A"
-        st.metric("Most Recent", most_recent_str)
+    most_recent = max(
+        filter(pd.notna, [
+            summary['obs_most_recent'],
+            summary['med_most_recent'],
+            summary['appt_most_recent'],
+        ]),
+        default=None
+    )
+    if most_recent is not None:
+        st.caption(f"Most recent activity: {format_date(most_recent)}")
 
 
 def render_core_demographics(patient):
@@ -411,30 +381,28 @@ def render_ltc_summary(person_id):
     """
     ltc_data = get_patient_ltc_summary(person_id)
 
-    if ltc_data.empty:
-        return
+    with st.container(border=True):
+        st.markdown("#### Long-Term Conditions")
 
-    st.markdown("### 🏥 Long-Term Conditions")
+        if ltc_data.empty:
+            st.caption("Not on any condition register")
+            return
 
-    # Group by clinical domain
-    domains = ltc_data['CLINICAL_DOMAIN'].unique()
+        # One compact line per clinical domain
+        for domain in sorted(ltc_data['CLINICAL_DOMAIN'].unique()):
+            domain_conditions = ltc_data[ltc_data['CLINICAL_DOMAIN'] == domain]
 
-    for domain in sorted(domains):
-        domain_conditions = ltc_data[ltc_data['CLINICAL_DOMAIN'] == domain]
+            badges_html = ""
+            for _, condition in domain_conditions.iterrows():
+                qof_class = "condition-qof" if condition['IS_QOF'] else "condition-other"
+                qof_badge = ' <span style="background-color: #084298; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; margin-left: 4px;">QOF</span>' if condition['IS_QOF'] else ""
+                earliest = format_date(condition['EARLIEST_DIAGNOSIS_DATE'])
+                badges_html += f'<span class="condition-badge {qof_class}">{condition["CONDITION_NAME"]}{qof_badge} <small>· Dx {earliest}</small></span>'
 
-        st.markdown(f"**{domain}**")
-
-        # Display conditions as badges
-        badges_html = ""
-        for _, condition in domain_conditions.iterrows():
-            qof_class = "condition-qof" if condition['IS_QOF'] else "condition-other"
-            qof_badge = ' <span style="background-color: #084298; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; margin-left: 4px;">QOF</span>' if condition['IS_QOF'] else ""
-            earliest = format_date(condition['EARLIEST_DIAGNOSIS_DATE'])
-
-            badges_html += f'<span class="condition-badge {qof_class}">{condition["CONDITION_NAME"]}{qof_badge}<br><small>Dx: {earliest}</small></span>'
-
-        st.markdown(badges_html, unsafe_allow_html=True)
-        st.markdown("")
+            st.markdown(
+                f'<span style="font-weight: 600; margin-right: 8px;">{domain}</span>{badges_html}',
+                unsafe_allow_html=True
+            )
 
 
 def _value_or(value, default="Not recorded"):
@@ -453,7 +421,13 @@ def render_health_status(person_id):
     """
     from services.status_service import get_person_health_status
 
-    st.markdown("### 📈 Health Status & Prevention")
+    with st.container(border=True):
+        _render_health_status_body(person_id, get_person_health_status)
+
+
+def _render_health_status_body(person_id, get_person_health_status):
+    """Body of the health status panel (inside its bordered container)."""
+    st.markdown("#### Health Status & Prevention")
 
     status = get_person_health_status(person_id)
 
