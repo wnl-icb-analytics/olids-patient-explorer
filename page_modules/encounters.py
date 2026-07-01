@@ -50,9 +50,14 @@ def render_encounters():
 
     st.markdown(f"## 🗒️ Encounters for Patient: {sk_patient_id}")
 
+    # Reset stale widget state from sessions started before an options change
+    options = list(ENCOUNTER_DATE_RANGE_OPTIONS.keys())
+    if st.session_state.get("encounter_date_range") not in options:
+        st.session_state.pop("encounter_date_range", None)
+
     date_range = st.selectbox(
         "Date Range",
-        options=list(ENCOUNTER_DATE_RANGE_OPTIONS.keys()),
+        options=options,
         index=0,
         key="encounter_date_range"
     )

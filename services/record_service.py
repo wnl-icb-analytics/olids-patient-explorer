@@ -569,7 +569,8 @@ def get_patient_encounters(person_id, date_from=None):
         e.location,
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
-        p.title as practitioner_title
+        p.title as practitioner_title,
+        pir.role as practitioner_role
     FROM {TABLE_ENCOUNTER} e
     LEFT JOIN {TABLE_CONCEPT} enc_concept
         ON e.encounter_source_concept_id = enc_concept.concept_id
@@ -729,7 +730,8 @@ def get_patient_result_series(person_id, result_display):
         o.is_confidential,
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
-        p.title as practitioner_title
+        p.title as practitioner_title,
+        pir.role as practitioner_role
     FROM {TABLE_OBSERVATION} o
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON o.practitioner_id = p.id
