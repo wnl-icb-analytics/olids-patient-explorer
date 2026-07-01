@@ -120,14 +120,15 @@ def safe_str(value):
     return str(value)
 
 
-def format_practitioner_name(last_name, first_name, title):
+def format_practitioner_name(last_name, first_name, title, role=None):
     """
-    Format practitioner name as: LAST_NAME, First_Name (Title)
+    Format practitioner name as: LAST_NAME, First_Name (Title) · Role
 
     Args:
         last_name: Practitioner last name
         first_name: Practitioner first name
         title: Practitioner title
+        role: Practitioner role from practitioner_in_role (optional)
 
     Returns:
         Formatted name string or 'N/A'
@@ -148,6 +149,10 @@ def format_practitioner_name(last_name, first_name, title):
     # Add title if present
     if title and title != "N/A":
         name = f"{name} ({title})"
+
+    # Add role if present (isinstance guards against NaN)
+    if isinstance(role, str) and role and role != "N/A":
+        name = f"{name} · {role}"
 
     return name
 

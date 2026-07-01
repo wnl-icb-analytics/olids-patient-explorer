@@ -627,7 +627,8 @@ def render_allergies_panel(person_id):
             lambda row: format_practitioner_name(
                 row['PRACTITIONER_LAST_NAME'],
                 row['PRACTITIONER_FIRST_NAME'],
-                row['PRACTITIONER_TITLE']
+                row['PRACTITIONER_TITLE'],
+                row['PRACTITIONER_ROLE']
             ),
             axis=1
         )
@@ -666,7 +667,8 @@ def render_problems_table(problems):
         lambda row: format_practitioner_name(
             row['PRACTITIONER_LAST_NAME'],
             row['PRACTITIONER_FIRST_NAME'],
-            row['PRACTITIONER_TITLE']
+            row['PRACTITIONER_TITLE'],
+            row['PRACTITIONER_ROLE']
         ),
         axis=1
     )

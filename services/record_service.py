@@ -10,6 +10,7 @@ from config import (
     TABLE_MEDICATION_ORDER,
     TABLE_MEDICATION_STATEMENT,
     TABLE_PRACTITIONER,
+    TABLE_PRACTITIONER_IN_ROLE,
     TABLE_CONCEPT,
     TABLE_APPOINTMENT,
     TABLE_APPOINTMENT_PRACTITIONER,
@@ -21,6 +22,19 @@ from config import (
     MAX_OBSERVATIONS,
 )
 from database import run_query
+
+# One role per practitioner. The source is currently 1:1 with
+# practitioners, but QUALIFY guards against row fan-out if employment
+# history ever appears in the table.
+PRACTITIONER_ROLE_JOIN = f"""LEFT JOIN (
+        SELECT practitioner_id, role
+        FROM {TABLE_PRACTITIONER_IN_ROLE}
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY practitioner_id
+            ORDER BY (date_employment_end IS NULL) DESC, date_employment_start DESC NULLS LAST
+        ) = 1
+    ) pir
+        ON p.id = pir.practitioner_id"""
 
 EMPTY_RECORD_SUMMARY = {
     "total_observations": 0,
@@ -197,10 +211,12 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
+        pir.role as practitioner_role,
         o.id
     FROM {TABLE_OBSERVATION} o
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON o.practitioner_id = p.id
+    {PRACTITIONER_ROLE_JOIN}
     LEFT JOIN {TABLE_CONCEPT} episodicity_concept
         ON o.episodicity_source_concept_id = episodicity_concept.concept_id
     WHERE {where_sql}
@@ -281,12 +297,14 @@ def get_patient_medications(person_id, date_from=None, date_to=None, search_term
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
+        pir.role as practitioner_role,
         m.id
     FROM {TABLE_MEDICATION_ORDER} m
     LEFT JOIN {TABLE_MEDICATION_STATEMENT} ms
         ON m.medication_statement_id = ms.id
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON m.practitioner_id = p.id
+    {PRACTITIONER_ROLE_JOIN}
     WHERE {where_sql}
     ORDER BY m.clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
@@ -364,6 +382,7 @@ def get_patient_appointments(person_id, date_from=None, date_to=None, include_fu
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
+        pir.role as practitioner_role,
         CASE WHEN a.start_date >= CURRENT_TIMESTAMP() THEN TRUE ELSE FALSE END as is_future,
         a.id
     FROM {TABLE_APPOINTMENT} a
@@ -371,6 +390,7 @@ def get_patient_appointments(person_id, date_from=None, date_to=None, include_fu
         ON a.id = ap.appointment_id
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON ap.practitioner_id = p.id
+    {PRACTITIONER_ROLE_JOIN}
     WHERE {where_sql}
     ORDER BY a.start_date DESC
     LIMIT {MAX_OBSERVATIONS}
@@ -407,10 +427,12 @@ def get_patient_allergies(person_id):
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
+        pir.role as practitioner_role,
         a.id
     FROM {TABLE_ALLERGY} a
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON a.practitioner_id = p.id
+    {PRACTITIONER_ROLE_JOIN}
     WHERE a.person_id = ?
     ORDER BY a.clinical_effective_date DESC
     """
@@ -450,6 +472,7 @@ def get_patient_referrals(person_id):
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
+        pir.role as practitioner_role,
         r.id
     FROM {TABLE_REFERRAL} r
     LEFT JOIN {TABLE_CONCEPT} referral_concept
@@ -464,6 +487,7 @@ def get_patient_referrals(person_id):
         ON r.recipient_organisation_id = rec_org.id
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON r.practitioner_id = p.id
+    {PRACTITIONER_ROLE_JOIN}
     WHERE r.person_id = ?
     ORDER BY r.clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
@@ -495,6 +519,7 @@ def get_patient_procedures(person_id):
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
+        pir.role as practitioner_role,
         pr.id
     FROM {TABLE_PROCEDURE_REQUEST} pr
     LEFT JOIN {TABLE_CONCEPT} proc_concept
@@ -503,6 +528,7 @@ def get_patient_procedures(person_id):
         ON pr.status_source_concept_id = status_concept.concept_id
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON pr.practitioner_id = p.id
+    {PRACTITIONER_ROLE_JOIN}
     WHERE pr.person_id = ?
     ORDER BY pr.clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
@@ -549,6 +575,7 @@ def get_patient_encounters(person_id, date_from=None):
         ON e.encounter_source_concept_id = enc_concept.concept_id
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON e.practitioner_id = p.id
+    {PRACTITIONER_ROLE_JOIN}
     WHERE {where_sql}
     ORDER BY e.clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
@@ -706,6 +733,7 @@ def get_patient_result_series(person_id, result_display):
     FROM {TABLE_OBSERVATION} o
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON o.practitioner_id = p.id
+    {PRACTITIONER_ROLE_JOIN}
     WHERE o.person_id = ?
         AND o.result_value IS NOT NULL
         AND o.mapped_concept_display = ?
@@ -742,10 +770,12 @@ def get_patient_problems(person_id):
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
+        pir.role as practitioner_role,
         o.id
     FROM {TABLE_OBSERVATION} o
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON o.practitioner_id = p.id
+    {PRACTITIONER_ROLE_JOIN}
     LEFT JOIN {TABLE_CONCEPT} episodicity_concept
         ON o.episodicity_source_concept_id = episodicity_concept.concept_id
     WHERE o.person_id = ?

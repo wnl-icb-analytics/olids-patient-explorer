@@ -109,7 +109,8 @@ def render_encounter_section(enc, enc_items):
     practitioner = format_practitioner_name(
         enc['PRACTITIONER_LAST_NAME'],
         enc['PRACTITIONER_FIRST_NAME'],
-        enc['PRACTITIONER_TITLE']
+        enc['PRACTITIONER_TITLE'],
+        enc['PRACTITIONER_ROLE']
     )
 
     # Source type labels are often migration placeholders - only show useful ones

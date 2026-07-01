@@ -92,7 +92,8 @@ def render_observations():
             lambda row: format_practitioner_name(
                 row['PRACTITIONER_LAST_NAME'],
                 row['PRACTITIONER_FIRST_NAME'],
-                row['PRACTITIONER_TITLE']
+                row['PRACTITIONER_TITLE'],
+                row['PRACTITIONER_ROLE']
             ),
             axis=1
         )
