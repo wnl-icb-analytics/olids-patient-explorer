@@ -2,6 +2,8 @@
 Patient summary page - landing page when viewing a patient record
 """
 
+import json
+import math
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -530,9 +532,22 @@ def _render_health_status_body(person_id, get_person_health_status):
                 st.caption(f"As at {format_date(status['POLY_STATUS_DATE'])} (repeat prescriptions with active supply)")
             # Snowflake ARRAY arrives as a JSON string (or NaN when absent)
             med_list = status['POLY_MEDICATION_NAME_LIST']
-            if med_list is not None and not (isinstance(med_list, float) and pd.isna(med_list)):
-                with st.expander("Medication list"):
-                    st.write(med_list)
+            meds = []
+            if isinstance(med_list, list):
+                meds = med_list
+            elif isinstance(med_list, str) and med_list.strip():
+                try:
+                    meds = json.loads(med_list)
+                except (ValueError, TypeError):
+                    meds = [med_list]
+
+            if meds:
+                with st.expander(f"Medication list ({len(meds)})"):
+                    per_col = math.ceil(len(meds) / 3)
+                    for idx, col in enumerate(st.columns(3)):
+                        chunk = meds[idx * per_col:(idx + 1) * per_col]
+                        with col:
+                            st.markdown("\n".join(f"- {safe_str(m)}" for m in chunk))
 
     with tab_screen:
         rows = []
