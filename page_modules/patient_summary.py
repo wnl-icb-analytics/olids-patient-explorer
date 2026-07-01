@@ -63,8 +63,8 @@ def render_patient_summary():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Health status & prevention (single-trip query over reporting marts;
-    # includes key results and on-demand problems)
-    render_health_status(person_id)
+    # returns the problems tab slot for deferred filling below)
+    problems_slot = render_health_status(person_id)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -85,6 +85,13 @@ def render_patient_summary():
 
     with tab4:
         render_language_info(patient)
+
+    # Deferred: the problems query runs after the whole page has painted
+    # and fills its tab in place. Tab switches are client-side, so the
+    # content must be rendered within this same run.
+    if problems_slot is not None:
+        with problems_slot:
+            render_problems_tab(person_id)
 
 
 def render_patient_header(patient, person_id):
@@ -430,29 +437,37 @@ def render_health_status(person_id):
     from services.status_service import get_person_health_status
 
     with st.container(border=True):
-        _render_health_status_body(person_id, get_person_health_status)
+        return _render_health_status_body(person_id, get_person_health_status)
 
 
 def _render_health_status_body(person_id, get_person_health_status):
-    """Body of the health status panel (inside its bordered container)."""
+    """
+    Body of the health status panel (inside its bordered container).
+
+    Returns:
+        The problems tab container, filled at the end of the page run
+        so its query never blocks the initial paint.
+    """
     st.markdown("#### Health Status & Prevention")
-
-    status = get_person_health_status(person_id)
-
-    if status is None:
-        st.info("No health status data available")
-        return
 
     tab_risk, tab_results, tab_bp, tab_poly, tab_problems, tab_screen, tab_vacc = st.tabs([
         "🚬 Risk Factors", "🧪 Key Results", "🩸 Blood Pressure", "💊 Polypharmacy",
         "🏥 Problems", "🔬 Screening", "💉 Vaccinations"
     ])
 
+    with tab_problems:
+        problems_slot = st.container()
+
     with tab_results:
         render_key_results_tab(person_id)
 
-    with tab_problems:
-        render_problems_tab(person_id)
+    status = get_person_health_status(person_id)
+
+    if status is None:
+        for tab in (tab_risk, tab_bp, tab_poly, tab_screen, tab_vacc):
+            with tab:
+                st.info("No health status data available")
+        return problems_slot
 
     with tab_risk:
         col1, col2, col3, col4 = st.columns(4)
@@ -557,6 +572,8 @@ def _render_health_status_body(person_id, get_person_health_status):
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         st.caption("Latest campaign per programme; age-based eligibility applies (pneumococcal/shingles 65+, RSV 60+)")
+
+    return problems_slot
 
 
 def render_allergies_panel(person_id):
@@ -725,20 +742,14 @@ def render_key_results_tab(person_id):
 
 def render_problems_tab(person_id):
     """
-    Render the problems tab. Loaded on demand: tab bodies execute even
-    when not selected, so the query only runs once the user asks for it
-    (cached thereafter).
+    Render the problems tab content. Called at the end of the page run
+    (after everything else has painted) so the query, cached thereafter,
+    never blocks the initial render.
 
     Args:
         person_id: Person identifier
     """
     from services.record_service import get_patient_problems
-
-    if st.session_state.get("problems_person") != person_id:
-        if st.button("Load problems"):
-            st.session_state.problems_person = person_id
-            st.rerun()
-        return
 
     with st.spinner("Loading problems..."):
         problems = get_patient_problems(person_id)
