@@ -3,7 +3,9 @@ Configuration settings for OLIDS Patient Record Explorer
 """
 
 # Database configuration
-DB_STAGING = "MODELLING.DBT_STAGING"
+# OLIDS staging models materialize in STAGING.OLIDS (post-2026 schema realignment;
+# was MODELLING.DBT_STAGING)
+DB_STAGING = "STAGING.OLIDS"
 DB_DEMOGRAPHICS = "REPORTING.OLIDS_PERSON_DEMOGRAPHICS"
 DB_DISEASE_REGISTERS = "REPORTING.OLIDS_DISEASE_REGISTERS"
 

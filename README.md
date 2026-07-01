@@ -57,7 +57,7 @@ olids-patient-explorer/
 
 ### Tables Used
 
-**Staging Tables** (`MODELLING.DBT_STAGING`):
+**Staging Tables** (`STAGING.OLIDS`):
 - `STG_OLIDS_OBSERVATION`: Patient observations with problem flags and episodicity
 - `STG_OLIDS_MEDICATION_ORDER`: Medication orders with `issue_method_description`
 - `STG_OLIDS_MEDICATION_STATEMENT`: Medication statements with `authorisation_type_display`
@@ -106,7 +106,7 @@ Database connection and configuration settings are managed in `config.py`. The a
 - **Role**: `APP_ADMIN`
 - **Warehouse**: `WH_NCL_ENGINEERING_XS`
 - **Schemas**:
-  - `MODELLING.DBT_STAGING` for staging clinical data
+  - `STAGING.OLIDS` for staging clinical data
   - `REPORTING.OLIDS_PERSON_DEMOGRAPHICS` for demographics
   - `REPORTING.OLIDS_DISEASE_REGISTERS` for long-term conditions
 

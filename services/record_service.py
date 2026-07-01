@@ -96,8 +96,8 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
         o.result_text,
         o.result_unit_display,
         o.is_problem,
-        COALESCE(episodicity_concept.display, o.episodicity_concept_id) as episodicity_display,
-        p.last_name as practitioner_last_name,
+        COALESCE(episodicity_concept.display, o.episodicity_source_concept_id) as episodicity_display,
+        p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
         o.id
@@ -105,10 +105,10 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON o.practitioner_id = p.id
     LEFT JOIN {TABLE_CONCEPT_MAP} episodicity_map
-        ON o.episodicity_concept_id = episodicity_map.source_code_id
+        ON o.episodicity_source_concept_id = episodicity_map.source_concept_id
         AND episodicity_map.is_primary = TRUE
     LEFT JOIN {TABLE_CONCEPT} episodicity_concept
-        ON episodicity_map.target_code_id = episodicity_concept.id
+        ON episodicity_map.target_concept_id = episodicity_concept.concept_id
     WHERE {where_sql}
     ORDER BY o.clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
@@ -242,7 +242,7 @@ def get_patient_medications(person_id, date_from=None, date_to=None, search_term
         ms.is_active as statement_is_active,
         ms.cancellation_date,
         ms.expiry_date,
-        p.last_name as practitioner_last_name,
+        p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
         m.id
@@ -352,7 +352,7 @@ def get_patient_appointments(person_id, date_from=None, date_to=None, include_fu
     Returns:
         DataFrame with appointments
     """
-    from config import TABLE_APPOINTMENT, TABLE_APPOINTMENT_PRACTITIONER, TABLE_PRACTITIONER, TABLE_CONCEPT, TABLE_CONCEPT_MAP, MAX_OBSERVATIONS
+    from config import TABLE_APPOINTMENT, TABLE_APPOINTMENT_PRACTITIONER, TABLE_PRACTITIONER, MAX_OBSERVATIONS
     conn = get_connection()
 
     # Build WHERE clause - always include future appointments if requested
@@ -374,14 +374,14 @@ def get_patient_appointments(person_id, date_from=None, date_to=None, include_fu
     query = f"""
     SELECT
         a.start_date,
-        a.type,
-        COALESCE(status_concept.display, a.appointment_status_concept_id) as appointment_status,
+        a.appointment_type as type,
+        a.appointment_status_display as appointment_status,
         a.national_slot_category_name,
-        COALESCE(contact_concept.display, a.contact_mode_concept_id) as contact_mode,
-        a.planned_duration,
-        a.actual_duration,
-        a.patient_wait,
-        p.last_name as practitioner_last_name,
+        a.contact_mode_display as contact_mode,
+        a.planned_duration_mins as planned_duration,
+        a.actual_duration_mins as actual_duration,
+        a.patient_wait_mins as patient_wait,
+        p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
         CASE WHEN a.start_date >= CURRENT_TIMESTAMP() THEN TRUE ELSE FALSE END as is_future,
@@ -391,16 +391,6 @@ def get_patient_appointments(person_id, date_from=None, date_to=None, include_fu
         ON a.id = ap.appointment_id
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON ap.practitioner_id = p.id
-    LEFT JOIN {TABLE_CONCEPT_MAP} status_map
-        ON a.appointment_status_concept_id = status_map.source_code_id
-        AND status_map.is_primary = TRUE
-    LEFT JOIN {TABLE_CONCEPT} status_concept
-        ON status_map.target_code_id = status_concept.id
-    LEFT JOIN {TABLE_CONCEPT_MAP} contact_map
-        ON a.contact_mode_concept_id = contact_map.source_code_id
-        AND contact_map.is_primary = TRUE
-    LEFT JOIN {TABLE_CONCEPT} contact_concept
-        ON contact_map.target_code_id = contact_concept.id
     WHERE {where_sql}
     ORDER BY a.start_date DESC
     LIMIT {MAX_OBSERVATIONS}
@@ -433,8 +423,8 @@ def get_patient_problems(person_id):
         o.mapped_concept_display,
         o.is_problem,
         o.problem_end_date,
-        COALESCE(episodicity_concept.display, o.episodicity_concept_id) as episodicity,
-        p.last_name as practitioner_last_name,
+        COALESCE(episodicity_concept.display, o.episodicity_source_concept_id) as episodicity,
+        p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
         o.id
@@ -442,10 +432,10 @@ def get_patient_problems(person_id):
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON o.practitioner_id = p.id
     LEFT JOIN {TABLE_CONCEPT_MAP} episodicity_map
-        ON o.episodicity_concept_id = episodicity_map.source_code_id
+        ON o.episodicity_source_concept_id = episodicity_map.source_concept_id
         AND episodicity_map.is_primary = TRUE
     LEFT JOIN {TABLE_CONCEPT} episodicity_concept
-        ON episodicity_map.target_code_id = episodicity_concept.id
+        ON episodicity_map.target_concept_id = episodicity_concept.concept_id
     WHERE o.person_id = '{person_id}'
         AND o.is_problem = TRUE
         AND (o.is_problem_deleted IS NULL OR o.is_problem_deleted = FALSE)
