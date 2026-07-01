@@ -145,10 +145,10 @@ def render_navigation(summary):
     """
     # Count-less Results sits in the shorter second row to keep the grid tidy
     nav_items = [
+        ("🗒️ Encounters", f" · {summary['total_encounters']:,}", "encounters"),
         ("📊 Observations", f" · {summary['total_observations']:,}", "observations"),
         ("💊 Medications", f" · {summary['current_medications']:,} current", "medications"),
         ("📅 Appointments", f" · {summary['appointments_last_12m']:,} in 12m", "appointments"),
-        ("🗒️ Encounters", f" · {summary['total_encounters']:,}", "encounters"),
         ("🧪 Results", "", "results"),
         ("📨 Referrals", f" · {summary['total_referrals']:,}", "referrals"),
         ("🩺 Procedures", f" · {summary['total_procedures']:,}", "procedures"),
