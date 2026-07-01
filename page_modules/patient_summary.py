@@ -416,14 +416,18 @@ def render_ltc_summary(person_id):
                 earliest = format_date(condition['EARLIEST_DIAGNOSIS_DATE'])
                 badges_html += f'<span class="condition-badge {qof_class}">{condition["CONDITION_NAME"]}{qof_badge} <small>· Dx {earliest}</small></span>'
 
+            # Bordered group per domain so groups stay visually distinct
+            # when they pack side by side (theme-neutral translucent grey)
             groups_html += (
-                '<div style="display: flex; align-items: center; flex-wrap: wrap; margin-right: 32px;">'
+                '<div style="display: flex; align-items: center; flex-wrap: wrap; '
+                'border: 1px solid rgba(128, 128, 128, 0.3); border-radius: 8px; '
+                'padding: 2px 10px;">'
                 f'<span style="font-weight: 600; margin-right: 8px; white-space: nowrap;">{domain}</span>'
                 f'{badges_html}</div>'
             )
 
         st.markdown(
-            f'<div style="display: flex; flex-wrap: wrap; row-gap: 6px;">{groups_html}</div>',
+            f'<div style="display: flex; flex-wrap: wrap; gap: 8px;">{groups_html}</div>',
             unsafe_allow_html=True
         )
 
