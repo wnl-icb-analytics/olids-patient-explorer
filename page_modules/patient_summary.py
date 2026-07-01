@@ -529,7 +529,10 @@ def _render_health_status_body(person_id, get_person_health_status):
             with col3:
                 st.metric("Polypharmacy (10+)", "Yes" if status['POLY_IS_10PLUS'] == True else "No")
             if pd.notna(status['POLY_STATUS_DATE']):
-                st.caption(f"As at {format_date(status['POLY_STATUS_DATE'])} (repeat prescriptions with active supply)")
+                st.caption(
+                    f"As at {format_date(status['POLY_STATUS_DATE'])} · repeat prescriptions "
+                    "with active supply · polypharmacy scope only"
+                )
             # Snowflake ARRAY arrives as a JSON string (or NaN when absent)
             med_list = status['POLY_MEDICATION_NAME_LIST']
             meds = []
@@ -542,12 +545,19 @@ def _render_health_status_body(person_id, get_person_health_status):
                     meds = [med_list]
 
             if meds:
-                with st.expander(f"Medication list ({len(meds)})"):
+                with st.expander(f"Polypharmacy-scope repeat medications ({len(meds)})"):
                     per_col = math.ceil(len(meds) / 3)
                     for idx, col in enumerate(st.columns(3)):
                         chunk = meds[idx * per_col:(idx + 1) * per_col]
                         with col:
                             st.markdown("\n".join(f"- {safe_str(m)}" for m in chunk))
+                    st.caption(
+                        "Polypharmacy scope excludes most anti-infectives (HIV and hepatitis "
+                        "antivirals retained), vitamins/minerals/nutrition products, "
+                        "contraceptives, thyroid drugs, topicals, and devices/dressings/"
+                        "appliances - so this list can be shorter than the full repeat list "
+                        "on the Medications page."
+                    )
 
     with tab_screen:
         rows = []
