@@ -80,7 +80,6 @@ PAST_MEDICATIONS_DATE_RANGE_OPTIONS = {
 
 # Date range options for encounters
 ENCOUNTER_DATE_RANGE_OPTIONS = {
-    "Last 3 months": 90,
     "Last 12 months": 365,
     "All time": None
 }
