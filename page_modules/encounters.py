@@ -81,19 +81,26 @@ def render_encounters():
         ~items['ENCOUNTER_ID'].isin(set(encounters['ID']) if not encounters.empty else set())
     ].copy()
 
-    # Encounters that have coded items, most recent first
+    # Encounters with coded items, plus appointment-backed encounters:
+    # the source emits these as separate rows (appointment-linked rows
+    # carry no coded items), so both are journal entries
     if not encounters.empty:
-        with_items = encounters[encounters['ID'].isin(encounter_ids_with_items)]
+        displayable = encounters[
+            encounters['ID'].isin(encounter_ids_with_items) |
+            encounters['APPOINTMENT_ID'].notna()
+        ]
+        n_with_items = int(encounters['ID'].isin(encounter_ids_with_items).sum())
     else:
-        with_items = pd.DataFrame()
+        displayable = pd.DataFrame()
+        n_with_items = 0
 
-    n_groups = len(with_items)
-    st.markdown(f"**{n_groups:,} encounter(s) with coded items**")
+    n_groups = len(displayable)
+    st.markdown(f"**{n_groups:,} encounter(s)** ({n_with_items:,} with coded items)")
     if n_groups > MAX_ENCOUNTER_GROUPS:
         st.caption(f"Showing the {MAX_ENCOUNTER_GROUPS} most recent - narrow the date range for older encounters")
 
-    for _, enc in with_items.head(MAX_ENCOUNTER_GROUPS).iterrows():
-        enc_items = items_by_encounter[enc['ID']]
+    for _, enc in displayable.head(MAX_ENCOUNTER_GROUPS).iterrows():
+        enc_items = items_by_encounter.get(enc['ID'])
         render_encounter_section(enc, enc_items)
 
     # Items not linked to any encounter shown, grouped flat by date
@@ -132,6 +139,9 @@ def render_encounter_section(enc, enc_items):
     # Appointment context, present for appointment-backed encounters only.
     # Long values (e.g. NHS data dictionary attendance descriptions) are
     # trimmed for the caption; source can carry encoding artifacts.
+    is_appointment = pd.notna(enc['APPOINTMENT_ID'])
+    if is_appointment:
+        context_parts.append("Appointment")
     for col in ('SLOT_CATEGORY', 'CONTACT_MODE', 'APPOINTMENT_STATUS'):
         value = enc[col]
         if pd.notna(value) and safe_str(value) != "N/A":
@@ -140,16 +150,20 @@ def render_encounter_section(enc, enc_items):
                 text = text[:57].rstrip() + "..."
             context_parts.append(text)
 
-    context_parts.append(f"{len(enc_items)} item(s)")
+    if enc_items is not None and len(enc_items):
+        context_parts.append(f"{len(enc_items)} item(s)")
 
     with st.container(border=True):
         st.markdown(f"**{format_date(enc['CLINICAL_EFFECTIVE_DATE'])} — {practitioner}**")
         st.caption(" · ".join(context_parts))
-        # Item dates shown: requests are planned for future dates and
-        # observations can be backdated, so they can differ from the
-        # encounter date
-        display_df = prepare_items_table(enc_items, include_date=True)
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        if enc_items is not None and len(enc_items):
+            # Item dates shown: requests are planned for future dates and
+            # observations can be backdated, so they can differ from the
+            # encounter date
+            display_df = prepare_items_table(enc_items, include_date=True)
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("No items coded against this encounter record")
 
 
 def prepare_items_table(items, include_date=False):

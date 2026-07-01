@@ -576,6 +576,7 @@ def get_patient_encounters(person_id, date_from=None):
         e.clinical_effective_date,
         enc_concept.display as encounter_type,
         e.location,
+        appt.id as appointment_id,
         appt.national_slot_category_name as slot_category,
         appt.contact_mode_display as contact_mode,
         appt.appointment_status_display as appointment_status,
