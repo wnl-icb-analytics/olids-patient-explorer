@@ -1,6 +1,6 @@
 """
-Consultations view page - events grouped inside their encounters,
-mirroring the EMIS consultation/care-history journal.
+Encounters view page - events of different types grouped inside their
+encounters (OLIDS naming), mirroring the EMIS consultation journal.
 """
 
 import streamlit as st
@@ -8,16 +8,16 @@ import pandas as pd
 from datetime import datetime, timedelta
 from services.record_service import get_patient_encounters, get_patient_encounter_items
 from utils.helpers import format_date, safe_str, format_practitioner_name
-from config import CONSULTATION_DATE_RANGE_OPTIONS, MAX_CONSULTATION_GROUPS
+from config import ENCOUNTER_DATE_RANGE_OPTIONS, MAX_ENCOUNTER_GROUPS
 
 ITEM_TYPE_ORDER = ["Observation", "Medication", "Referral", "Procedure"]
 
 
-def render_consultations():
+def render_encounters():
     """
-    Render the consultations view: encounters as groups, each containing
-    the coded items recorded within it. Items without an encounter link
-    are listed separately so nothing is hidden.
+    Render the encounters view: a scrollable journal of encounters, each
+    a section containing the coded items recorded within it. Items
+    without an encounter link are listed separately so nothing is hidden.
     """
     # Check if patient is selected
     if "selected_patient" not in st.session_state or not st.session_state.selected_patient:
@@ -48,23 +48,23 @@ def render_consultations():
             st.session_state.search_results = None
             st.rerun()
 
-    st.markdown(f"## 🗒️ Consultations for Patient: {sk_patient_id}")
+    st.markdown(f"## 🗒️ Encounters for Patient: {sk_patient_id}")
 
     date_range = st.selectbox(
         "Date Range",
-        options=list(CONSULTATION_DATE_RANGE_OPTIONS.keys()),
+        options=list(ENCOUNTER_DATE_RANGE_OPTIONS.keys()),
         index=0,
-        key="consultation_date_range"
+        key="encounter_date_range"
     )
-    days = CONSULTATION_DATE_RANGE_OPTIONS.get(date_range)
+    days = ENCOUNTER_DATE_RANGE_OPTIONS.get(date_range)
     date_from = (datetime.now().date() - timedelta(days=days)) if days else None
 
-    with st.spinner("Loading consultations..."):
+    with st.spinner("Loading encounters..."):
         encounters = get_patient_encounters(person_id, date_from)
         items = get_patient_encounter_items(person_id, date_from)
 
     if encounters.empty and items.empty:
-        st.info("No consultations or clinical events found for the selected period")
+        st.info("No encounters or clinical events found for the selected period")
         return
 
     # Split items into encounter-linked and unlinked
@@ -83,19 +83,18 @@ def render_consultations():
         with_items = pd.DataFrame()
 
     n_groups = len(with_items)
-    shown = min(n_groups, MAX_CONSULTATION_GROUPS)
-    st.markdown(f"**{n_groups:,} consultation(s) with coded items**")
-    if n_groups > MAX_CONSULTATION_GROUPS:
-        st.caption(f"Showing the {MAX_CONSULTATION_GROUPS} most recent - narrow the date range for older consultations")
+    st.markdown(f"**{n_groups:,} encounter(s) with coded items**")
+    if n_groups > MAX_ENCOUNTER_GROUPS:
+        st.caption(f"Showing the {MAX_ENCOUNTER_GROUPS} most recent - narrow the date range for older encounters")
 
-    for _, enc in with_items.head(MAX_CONSULTATION_GROUPS).iterrows():
+    for _, enc in with_items.head(MAX_ENCOUNTER_GROUPS).iterrows():
         enc_items = items_by_encounter[enc['ID']]
-        render_encounter_group(enc, enc_items)
+        render_encounter_section(enc, enc_items)
 
     # Items not linked to any encounter shown, grouped flat by date
     if not unlinked.empty:
         st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander(f"Items not linked to a consultation ({len(unlinked):,})"):
+        with st.expander(f"Items not linked to an encounter ({len(unlinked):,})"):
             display_df = prepare_items_table(unlinked, include_date=True)
             st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
 
@@ -105,8 +104,8 @@ def render_consultations():
     )
 
 
-def render_encounter_group(enc, enc_items):
-    """Render one encounter as an expander with its items table."""
+def render_encounter_section(enc, enc_items):
+    """Render one encounter as a bordered section with its items table."""
     practitioner = format_practitioner_name(
         enc['PRACTITIONER_LAST_NAME'],
         enc['PRACTITIONER_FIRST_NAME'],
@@ -117,15 +116,17 @@ def render_encounter_group(enc, enc_items):
     etype = enc['ENCOUNTER_TYPE']
     etype = safe_str(etype) if pd.notna(etype) and not str(etype).startswith('Awaiting') else None
 
-    label = f"{format_date(enc['CLINICAL_EFFECTIVE_DATE'])} — {practitioner}"
+    context_parts = []
     if etype:
-        label += f" · {etype}"
+        context_parts.append(etype)
     location = enc['LOCATION']
-    if pd.notna(location) and safe_str(location) != "N/A":
-        label += f" · {safe_str(location)}"
-    label += f" · {len(enc_items)} item(s)"
+    if pd.notna(location) and safe_str(location) != "N/A" and safe_str(location) != etype:
+        context_parts.append(safe_str(location))
+    context_parts.append(f"{len(enc_items)} item(s)")
 
-    with st.expander(label):
+    with st.container(border=True):
+        st.markdown(f"**{format_date(enc['CLINICAL_EFFECTIVE_DATE'])} — {practitioner}**")
+        st.caption(" · ".join(context_parts))
         display_df = prepare_items_table(enc_items)
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 

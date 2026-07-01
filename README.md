@@ -13,16 +13,20 @@ Streamlit application for exploring individual patient records from OLIDS data, 
   - Geographic information (borough, deprivation indices, LSOA, ward)
   - Language and interpreter requirements
   - Long-term conditions summary
-  - Health status & prevention: risk factors (BMI/smoking/alcohol), blood pressure
-    control (NG136), polypharmacy, screening programmes, vaccinations,
+  - Health status & prevention: risk factors (BMI/smoking/alcohol), key results
+    (curated biomarkers - HbA1c, cholesterol/LDL, eGFR, creatinine, ACR,
+    haemoglobin, glucose, QRISK), blood pressure control (NG136), polypharmacy,
+    problems (on demand), screening programmes, vaccinations,
     Cambridge Comorbidity Score
-  - Problems (Active & Past) - loaded on demand
 - **Observations**: Date range filtering, SNOMED code/description search, problem
   flag and episodicity, values with units
+- **Results**: Numeric results with a history chart and value list per result type
 - **Medications**: Current and Past sections with status derivation from
   statement/order joins
 - **Appointments**: Upcoming and past with timeline charts by status and slot category
-- **Referrals**: Referral reason, priority, type, mode and direction
+- **Encounters**: Events of all types grouped inside their encounters
+  (consultation journal), with unlinked items listed separately
+- **Referrals**: Referral reason, priority, type, mode, direction, organisations and UBRN
 - **Procedures**: Procedure requests with status
 
 Records flagged `is_confidential` in the source are marked with 🔒.
@@ -70,12 +74,16 @@ olids-patient-explorer/
 - `STG_OLIDS_ALLERGY_INTOLERANCE`: Allergies and intolerances
 - `STG_OLIDS_REFERRAL_REQUEST`: Referral requests
 - `STG_OLIDS_PROCEDURE_REQUEST`: Procedure requests
+- `STG_OLIDS_ENCOUNTER`: Encounters (grouping spine for the encounters view)
+- `STG_OLIDS_ORGANISATION`: Organisation names for referrals
 - `STG_OLIDS_PRACTITIONER`: Practitioner information
 - `STG_OLIDS_CONCEPT`: Concept definitions
 
-Not surfaced: `STG_OLIDS_DIAGNOSTIC_ORDER` (empty in source),
-`STG_OLIDS_ENCOUNTER` (type/sub_type unpopulated; concept labels dominated by
-EMIS migration placeholders).
+Not surfaced: `STG_OLIDS_DIAGNOSTIC_ORDER` (empty in source).
+
+**Biomarker Models** (`MODELLING.OLIDS_OBSERVATIONS`, one row per person):
+- `INT_*_LATEST` models for HbA1c, cholesterol, LDL, eGFR, creatinine,
+  urine ACR, haemoglobin, blood glucose and QRISK (unit-standardised)
 
 **Demographics Tables** (`REPORTING.OLIDS_PERSON_DEMOGRAPHICS`):
 - `DIM_PERSON_DEMOGRAPHICS`: Current patient demographics

@@ -62,13 +62,9 @@ def render_patient_summary():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Health status & prevention (single-trip query over reporting marts)
+    # Health status & prevention (single-trip query over reporting marts;
+    # includes key results and on-demand problems)
     render_health_status(person_id)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Problems section (loaded on demand)
-    render_problems_summary(person_id)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -138,18 +134,19 @@ def render_navigation(summary):
         summary: Record summary dictionary from get_record_summary
     """
     nav_items = [
-        ("📊 Observations", f"{summary['total_observations']:,}", "observations"),
-        ("💊 Medications", f"{summary['current_medications']:,} current", "medications"),
-        ("📅 Appointments", f"{summary['appointments_last_12m']:,} in 12m", "appointments"),
-        ("🗒️ Consultations", f"{summary['total_encounters']:,}", "consultations"),
-        ("📨 Referrals", f"{summary['total_referrals']:,}", "referrals"),
-        ("🩺 Procedures", f"{summary['total_procedures']:,}", "procedures"),
+        ("📊 Observations", f" · {summary['total_observations']:,}", "observations"),
+        ("🧪 Results", "", "results"),
+        ("💊 Medications", f" · {summary['current_medications']:,} current", "medications"),
+        ("📅 Appointments", f" · {summary['appointments_last_12m']:,} in 12m", "appointments"),
+        ("🗒️ Encounters", f" · {summary['total_encounters']:,}", "encounters"),
+        ("📨 Referrals", f" · {summary['total_referrals']:,}", "referrals"),
+        ("🩺 Procedures", f" · {summary['total_procedures']:,}", "procedures"),
     ]
 
-    cols = st.columns(3) + st.columns(3)
+    cols = st.columns(4) + st.columns(4)
     for col, (label, count, page) in zip(cols, nav_items):
         with col:
-            if st.button(f"{label} · {count}", use_container_width=True, type="primary"):
+            if st.button(f"{label}{count}", use_container_width=True, type="primary"):
                 st.session_state.page = page
                 st.rerun()
 
@@ -435,10 +432,16 @@ def _render_health_status_body(person_id, get_person_health_status):
         st.info("No health status data available")
         return
 
-    tab_risk, tab_bp, tab_poly, tab_screen, tab_vacc = st.tabs([
-        "🚬 Risk Factors", "🩸 Blood Pressure", "💊 Polypharmacy",
-        "🔬 Screening", "💉 Vaccinations"
+    tab_risk, tab_results, tab_bp, tab_poly, tab_problems, tab_screen, tab_vacc = st.tabs([
+        "🚬 Risk Factors", "🧪 Key Results", "🩸 Blood Pressure", "💊 Polypharmacy",
+        "🏥 Problems", "🔬 Screening", "💉 Vaccinations"
     ])
+
+    with tab_results:
+        render_key_results_tab(person_id)
+
+    with tab_problems:
+        render_problems_tab(person_id)
 
     with tab_risk:
         col1, col2, col3, col4 = st.columns(4)
@@ -651,63 +654,114 @@ def render_problems_table(problems):
     )
 
 
-def render_problems_summary(person_id):
+def render_key_results_tab(person_id):
     """
-    Render problems summary section. Loaded on demand: expander bodies
-    execute even when collapsed, so the query only runs once the user
-    asks for it (cached thereafter).
+    Render latest key results from the curated biomarker models.
+
+    Args:
+        person_id: Person identifier
+    """
+    from services.status_service import get_person_biomarkers
+
+    biomarkers = get_person_biomarkers(person_id)
+
+    if biomarkers is None:
+        st.info("No key results available")
+        return
+
+    def fmt(value, pattern):
+        return pattern.format(value) if pd.notna(value) else None
+
+    b = biomarkers
+    hb_value = (
+        f"{b['HB_VALUE']:.0f} {_value_or(b['HB_UNIT'], '')}".strip()
+        if pd.notna(b['HB_VALUE']) else None
+    )
+    rows = [
+        ("HbA1c", _value_or(b['HBA1C_VALUE'], None), _value_or(b['HBA1C_CATEGORY'], ""), b['HBA1C_DATE']),
+        ("Total cholesterol", fmt(b['CHOL_VALUE'], "{:.1f} mmol/L"), _value_or(b['CHOL_CATEGORY'], ""), b['CHOL_DATE']),
+        ("LDL cholesterol", fmt(b['LDL_VALUE'], "{:.1f} mmol/L"),
+         (f"CVD target: {safe_str(b['LDL_TARGET_MET'])}" if pd.notna(b['LDL_TARGET_MET']) else ""),
+         b['LDL_DATE']),
+        ("eGFR", fmt(b['EGFR_VALUE'], "{:.0f} mL/min/1.73m²"), _value_or(b['EGFR_CKD_STAGE'], ""), b['EGFR_DATE']),
+        ("Creatinine", fmt(b['CREATININE_VALUE'], "{:.0f} µmol/L"), _value_or(b['CREATININE_CATEGORY'], ""), b['CREATININE_DATE']),
+        ("Urine ACR", fmt(b['ACR_VALUE'], "{:.1f} mg/mmol"), _value_or(b['ACR_CATEGORY'], ""), b['ACR_DATE']),
+        ("Haemoglobin", hb_value, _value_or(b['HB_CATEGORY'], ""), b['HB_DATE']),
+        ("Blood glucose", _value_or(b['GLUCOSE_VALUE'], None),
+         ("Fasting" if b['GLUCOSE_IS_FASTING'] == True else ""), b['GLUCOSE_DATE']),
+        (f"QRISK{'' if pd.isna(b['QRISK_TYPE']) else ' (' + safe_str(b['QRISK_TYPE']) + ')'}",
+         fmt(b['QRISK_SCORE'], "{:.1f}%"), _value_or(b['QRISK_CATEGORY'], ""), b['QRISK_DATE']),
+    ]
+
+    table_rows = [
+        {"Result": name, "Latest Value": value, "Interpretation": interp,
+         "Date": format_date(date)}
+        for name, value, interp, date in rows
+        if value is not None and value != "Not recorded"
+    ]
+
+    if not table_rows:
+        st.info("No key results recorded for this patient")
+        return
+
+    st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+    st.caption(
+        "Latest value per biomarker from the curated observation models "
+        "(unit-standardised); interpretation categories are derived in the analytics pipeline. "
+        "Full history on the Results page."
+    )
+
+
+def render_problems_tab(person_id):
+    """
+    Render the problems tab. Loaded on demand: tab bodies execute even
+    when not selected, so the query only runs once the user asks for it
+    (cached thereafter).
 
     Args:
         person_id: Person identifier
     """
     from services.record_service import get_patient_problems
 
-    with st.expander("🏥 Problems (Active & Past)", expanded=False):
-        if st.session_state.get("problems_person") != person_id:
-            if st.button("Load problems"):
-                st.session_state.problems_person = person_id
-                st.rerun()
-            return
+    if st.session_state.get("problems_person") != person_id:
+        if st.button("Load problems"):
+            st.session_state.problems_person = person_id
+            st.rerun()
+        return
 
-        with st.spinner("Loading problems..."):
-            problems = get_patient_problems(person_id)
+    with st.spinner("Loading problems..."):
+        problems = get_patient_problems(person_id)
 
-        if problems.empty:
-            st.info("No problems found")
-            return
+    if problems.empty:
+        st.info("No problems found")
+        return
 
-        # Split into active and past problems based on problem_end_date
-        # Current: problem_end_date is NULL or in the future
-        # Past: problem_end_date is set and in the past
-        now = datetime.now()
+    # Split into active and past problems based on problem_end_date
+    # Current: problem_end_date is NULL or in the future
+    # Past: problem_end_date is set and in the past
+    now = datetime.now()
 
-        active_problems = problems[
-            (problems['PROBLEM_END_DATE'].isna()) |
-            (pd.to_datetime(problems['PROBLEM_END_DATE']) > now)
-        ].copy()
+    active_problems = problems[
+        (problems['PROBLEM_END_DATE'].isna()) |
+        (pd.to_datetime(problems['PROBLEM_END_DATE']) > now)
+    ].copy()
 
-        past_problems = problems[
-            (problems['PROBLEM_END_DATE'].notna()) &
-            (pd.to_datetime(problems['PROBLEM_END_DATE']) <= now)
-        ].copy()
+    past_problems = problems[
+        (problems['PROBLEM_END_DATE'].notna()) &
+        (pd.to_datetime(problems['PROBLEM_END_DATE']) <= now)
+    ].copy()
 
-        if problems['IS_CONFIDENTIAL'].any():
-            st.caption("🔒 marks records flagged confidential in the source system")
+    if problems['IS_CONFIDENTIAL'].any():
+        st.caption("🔒 marks records flagged confidential in the source system")
 
-        # Active Problems Section
-        st.markdown("### Current Problems")
-        if active_problems.empty:
-            st.markdown("No current problems")
-        else:
-            st.markdown(f"**Showing {len(active_problems):,} current problem(s)**")
-            render_problems_table(active_problems)
+    st.markdown(f"**Current problems ({len(active_problems):,})**")
+    if active_problems.empty:
+        st.caption("No current problems")
+    else:
+        render_problems_table(active_problems)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Past Problems Section
-        st.markdown("### Past Problems")
-        if past_problems.empty:
-            st.markdown("No past problems")
-        else:
-            st.markdown(f"**Showing {len(past_problems):,} past problem(s)**")
-            render_problems_table(past_problems)
+    st.markdown(f"**Past problems ({len(past_problems):,})**")
+    if past_problems.empty:
+        st.caption("No past problems")
+    else:
+        render_problems_table(past_problems)

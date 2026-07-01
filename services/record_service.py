@@ -652,6 +652,74 @@ def get_patient_encounter_items(person_id, date_from=None):
         return pd.DataFrame()
 
 
+def get_patient_result_types(person_id):
+    """
+    Get the distinct numeric result types recorded for a patient
+    (observations with a result_value), with counts and latest date.
+
+    Args:
+        person_id: Person identifier
+
+    Returns:
+        DataFrame with RESULT_DISPLAY, RESULT_COUNT, LATEST_DATE
+    """
+    query = f"""
+    SELECT
+        mapped_concept_display as result_display,
+        COUNT(*) as result_count,
+        MAX(clinical_effective_date) as latest_date
+    FROM {TABLE_OBSERVATION}
+    WHERE person_id = ?
+        AND result_value IS NOT NULL
+        AND mapped_concept_display IS NOT NULL
+    GROUP BY mapped_concept_display
+    ORDER BY result_count DESC, latest_date DESC
+    """
+
+    try:
+        return run_query(query, [int(person_id)])
+    except Exception as e:
+        st.error(f"Error loading result types: {str(e)}")
+        return pd.DataFrame()
+
+
+def get_patient_result_series(person_id, result_display):
+    """
+    Get the full history of a numeric result type for a patient.
+
+    Args:
+        person_id: Person identifier
+        result_display: mapped_concept_display of the result type
+
+    Returns:
+        DataFrame with dates, values and units, most recent first
+    """
+    query = f"""
+    SELECT
+        o.clinical_effective_date,
+        o.result_value,
+        o.result_unit_display,
+        o.is_confidential,
+        p.surname as practitioner_last_name,
+        p.first_name as practitioner_first_name,
+        p.title as practitioner_title
+    FROM {TABLE_OBSERVATION} o
+    LEFT JOIN {TABLE_PRACTITIONER} p
+        ON o.practitioner_id = p.id
+    WHERE o.person_id = ?
+        AND o.result_value IS NOT NULL
+        AND o.mapped_concept_display = ?
+    ORDER BY o.clinical_effective_date DESC
+    LIMIT {MAX_OBSERVATIONS}
+    """
+
+    try:
+        return run_query(query, [int(person_id), str(result_display)])
+    except Exception as e:
+        st.error(f"Error loading result history: {str(e)}")
+        return pd.DataFrame()
+
+
 def get_patient_problems(person_id):
     """
     Get active and past problems for a patient from observations table.

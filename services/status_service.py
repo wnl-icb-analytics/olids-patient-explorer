@@ -15,6 +15,7 @@ from config import (
     TABLE_PNEUMOCOCCAL,
     TABLE_RSV,
     TABLE_SHINGLES,
+    DB_OBSERVATIONS,
 )
 from database import run_query
 
@@ -130,4 +131,78 @@ def get_person_health_status(person_id):
         return result.iloc[0]
     except Exception as e:
         st.warning(f"Could not load health status: {str(e)}")
+        return None
+
+
+def get_person_biomarkers(person_id):
+    """
+    Get latest key results from the curated biomarker models
+    (MODELLING.OLIDS_OBSERVATIONS INT_*_LATEST - one row per person,
+    unit-standardised) in a single round-trip.
+
+    Args:
+        person_id: Person identifier
+
+    Returns:
+        Single-row Series of prefixed columns, or None on failure
+    """
+    query = f"""
+    SELECT
+        hba1c.hba1c_display                 as hba1c_value,
+        hba1c.hba1c_category                as hba1c_category,
+        hba1c.clinical_effective_date       as hba1c_date,
+        chol.cholesterol_value              as chol_value,
+        chol.cholesterol_category           as chol_category,
+        chol.clinical_effective_date        as chol_date,
+        ldl.cholesterol_value               as ldl_value,
+        ldl.ldl_cvd_target_met              as ldl_target_met,
+        ldl.clinical_effective_date         as ldl_date,
+        egfr.egfr_value                     as egfr_value,
+        egfr.ckd_stage                      as egfr_ckd_stage,
+        egfr.clinical_effective_date        as egfr_date,
+        creat.creatinine_value              as creatinine_value,
+        creat.creatinine_category           as creatinine_category,
+        creat.clinical_effective_date       as creatinine_date,
+        acr.acr_value                       as acr_value,
+        acr.acr_category                    as acr_category,
+        acr.clinical_effective_date         as acr_date,
+        hb.inferred_value                   as hb_value,
+        hb.inferred_unit                    as hb_unit,
+        hb.haemoglobin_category             as hb_category,
+        hb.clinical_effective_date          as hb_date,
+        glucose.blood_glucose_display       as glucose_value,
+        glucose.is_fasting                  as glucose_is_fasting,
+        glucose.clinical_effective_date     as glucose_date,
+        qrisk.qrisk_score                   as qrisk_score,
+        qrisk.qrisk_type                    as qrisk_type,
+        qrisk.cvd_risk_category             as qrisk_category,
+        qrisk.clinical_effective_date       as qrisk_date
+    FROM (SELECT ? as person_id) k
+    LEFT JOIN {DB_OBSERVATIONS}.INT_HBA1C_LATEST hba1c
+        ON hba1c.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_CHOLESTEROL_LATEST chol
+        ON chol.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_CHOLESTEROL_LDL_LATEST ldl
+        ON ldl.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_EGFR_LATEST egfr
+        ON egfr.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_CREATININE_LATEST creat
+        ON creat.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_URINE_ACR_LATEST acr
+        ON acr.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_HAEMOGLOBIN_LATEST hb
+        ON hb.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_BLOOD_GLUCOSE_LATEST glucose
+        ON glucose.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_QRISK_LATEST qrisk
+        ON qrisk.person_id = k.person_id
+    """
+
+    try:
+        result = run_query(query, [int(person_id)])
+        if result.empty:
+            return None
+        return result.iloc[0]
+    except Exception as e:
+        st.warning(f"Could not load key results: {str(e)}")
         return None
