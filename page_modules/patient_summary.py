@@ -402,11 +402,11 @@ def render_ltc_summary(person_id):
             st.caption("Not on any condition register")
             return
 
-        # One compact line per clinical domain, split across two columns
-        domains = sorted(ltc_data['CLINICAL_DOMAIN'].unique())
-        columns = st.columns(2) if len(domains) > 1 else [st.container()]
-
-        for i, domain in enumerate(domains):
+        # Domain groups in a flex layout: each sizes to its content, so
+        # small domains pack side by side and large ones take the width
+        # they need instead of wrapping inside a fixed half-width column
+        groups_html = ""
+        for domain in sorted(ltc_data['CLINICAL_DOMAIN'].unique()):
             domain_conditions = ltc_data[ltc_data['CLINICAL_DOMAIN'] == domain]
 
             badges_html = ""
@@ -416,11 +416,16 @@ def render_ltc_summary(person_id):
                 earliest = format_date(condition['EARLIEST_DIAGNOSIS_DATE'])
                 badges_html += f'<span class="condition-badge {qof_class}">{condition["CONDITION_NAME"]}{qof_badge} <small>· Dx {earliest}</small></span>'
 
-            with columns[i % len(columns)]:
-                st.markdown(
-                    f'<span style="font-weight: 600; margin-right: 8px;">{domain}</span>{badges_html}',
-                    unsafe_allow_html=True
-                )
+            groups_html += (
+                '<div style="display: flex; align-items: center; flex-wrap: wrap; margin-right: 32px;">'
+                f'<span style="font-weight: 600; margin-right: 8px; white-space: nowrap;">{domain}</span>'
+                f'{badges_html}</div>'
+            )
+
+        st.markdown(
+            f'<div style="display: flex; flex-wrap: wrap; row-gap: 6px;">{groups_html}</div>',
+            unsafe_allow_html=True
+        )
 
 
 def _value_or(value, default="Not recorded"):
