@@ -61,21 +61,31 @@ def render_patient_summary():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Navigation buttons to different views
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
-        if st.button("📊 View Observations", use_container_width=True, type="primary"):
+        if st.button("📊 Observations", use_container_width=True, type="primary"):
             st.session_state.page = "observations"
             st.rerun()
 
     with col2:
-        if st.button("💊 View Medications", use_container_width=True, type="primary"):
+        if st.button("💊 Medications", use_container_width=True, type="primary"):
             st.session_state.page = "medications"
             st.rerun()
 
     with col3:
-        if st.button("📅 View Appointments", use_container_width=True, type="primary"):
+        if st.button("📅 Appointments", use_container_width=True, type="primary"):
             st.session_state.page = "appointments"
+            st.rerun()
+
+    with col4:
+        if st.button("📨 Referrals", use_container_width=True, type="primary"):
+            st.session_state.page = "referrals"
+            st.rerun()
+
+    with col5:
+        if st.button("🩺 Procedures", use_container_width=True, type="primary"):
+            st.session_state.page = "procedures"
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)

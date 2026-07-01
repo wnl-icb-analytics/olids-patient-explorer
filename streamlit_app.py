@@ -44,6 +44,12 @@ def main():
     elif st.session_state.page == 'appointments':
         from page_modules.appointments import render_appointments
         render_appointments()
+    elif st.session_state.page == 'referrals':
+        from page_modules.referrals import render_referrals
+        render_referrals()
+    elif st.session_state.page == 'procedures':
+        from page_modules.procedures import render_procedures
+        render_procedures()
     else:
         # Default to search page
         st.session_state.page = 'search'

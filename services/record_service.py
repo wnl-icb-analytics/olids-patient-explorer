@@ -14,6 +14,8 @@ from config import (
     TABLE_APPOINTMENT,
     TABLE_APPOINTMENT_PRACTITIONER,
     TABLE_ALLERGY,
+    TABLE_REFERRAL,
+    TABLE_PROCEDURE_REQUEST,
     MAX_OBSERVATIONS,
 )
 from database import run_query
@@ -391,6 +393,92 @@ def get_patient_allergies(person_id):
         return run_query(query, [int(person_id)])
     except Exception as e:
         st.error(f"Error loading allergies: {str(e)}")
+        return pd.DataFrame()
+
+
+def get_patient_referrals(person_id):
+    """
+    Get referral requests for a patient.
+
+    Referral reason and priority resolve via CONCEPT; priority is only
+    ~24% populated so displays blank when absent (no UUID fallback).
+    Specialty is unpopulated in the source and not selected.
+
+    Args:
+        person_id: Person identifier
+
+    Returns:
+        DataFrame with referrals
+    """
+    query = f"""
+    SELECT
+        r.clinical_effective_date,
+        referral_concept.display as referral_display,
+        priority_concept.display as priority,
+        type_concept.display as referral_type,
+        r.mode,
+        r.is_outgoing_referral,
+        p.surname as practitioner_last_name,
+        p.first_name as practitioner_first_name,
+        p.title as practitioner_title,
+        r.id
+    FROM {TABLE_REFERRAL} r
+    LEFT JOIN {TABLE_CONCEPT} referral_concept
+        ON r.referral_request_source_concept_id = referral_concept.concept_id
+    LEFT JOIN {TABLE_CONCEPT} priority_concept
+        ON r.referral_request_priority_source_concept_id = priority_concept.concept_id
+    LEFT JOIN {TABLE_CONCEPT} type_concept
+        ON r.referral_request_type_source_concept_id = type_concept.concept_id
+    LEFT JOIN {TABLE_PRACTITIONER} p
+        ON r.practitioner_id = p.id
+    WHERE r.person_id = ?
+    ORDER BY r.clinical_effective_date DESC
+    LIMIT {MAX_OBSERVATIONS}
+    """
+
+    try:
+        return run_query(query, [int(person_id)])
+    except Exception as e:
+        st.error(f"Error loading referrals: {str(e)}")
+        return pd.DataFrame()
+
+
+def get_patient_procedures(person_id):
+    """
+    Get procedure requests for a patient.
+
+    Args:
+        person_id: Person identifier
+
+    Returns:
+        DataFrame with procedure requests
+    """
+    query = f"""
+    SELECT
+        pr.clinical_effective_date,
+        COALESCE(pr.description, proc_concept.display) as procedure_display,
+        status_concept.display as status,
+        pr.is_confidential,
+        p.surname as practitioner_last_name,
+        p.first_name as practitioner_first_name,
+        p.title as practitioner_title,
+        pr.id
+    FROM {TABLE_PROCEDURE_REQUEST} pr
+    LEFT JOIN {TABLE_CONCEPT} proc_concept
+        ON pr.procedure_request_source_concept_id = proc_concept.concept_id
+    LEFT JOIN {TABLE_CONCEPT} status_concept
+        ON pr.status_source_concept_id = status_concept.concept_id
+    LEFT JOIN {TABLE_PRACTITIONER} p
+        ON pr.practitioner_id = p.id
+    WHERE pr.person_id = ?
+    ORDER BY pr.clinical_effective_date DESC
+    LIMIT {MAX_OBSERVATIONS}
+    """
+
+    try:
+        return run_query(query, [int(person_id)])
+    except Exception as e:
+        st.error(f"Error loading procedures: {str(e)}")
         return pd.DataFrame()
 
 
