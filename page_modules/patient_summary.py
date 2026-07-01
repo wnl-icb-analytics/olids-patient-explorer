@@ -114,6 +114,11 @@ def render_patient_summary():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # Health status & prevention (single-trip query over reporting marts)
+    render_health_status(person_id)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
     # Problems section (loaded on demand)
     render_problems_summary(person_id)
 
@@ -412,6 +417,140 @@ def render_ltc_summary(person_id):
 
         st.markdown(badges_html, unsafe_allow_html=True)
         st.markdown("")
+
+
+def _value_or(value, default="Not recorded"):
+    """Display value, or a default when missing."""
+    if value is None or pd.isna(value):
+        return default
+    return safe_str(value)
+
+
+def render_health_status(person_id):
+    """
+    Render health status & prevention tabs from the reporting marts.
+
+    Args:
+        person_id: Person identifier
+    """
+    from services.status_service import get_person_health_status
+
+    st.markdown("### 📈 Health Status & Prevention")
+
+    status = get_person_health_status(person_id)
+
+    if status is None:
+        st.info("No health status data available")
+        return
+
+    tab_risk, tab_bp, tab_poly, tab_screen, tab_vacc = st.tabs([
+        "🚬 Risk Factors", "🩸 Blood Pressure", "💊 Polypharmacy",
+        "🔬 Screening", "💉 Vaccinations"
+    ])
+
+    with tab_risk:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            bmi = status['BRF_BMI_VALUE']
+            st.metric("BMI", f"{bmi:.1f}" if pd.notna(bmi) else "Not recorded")
+            st.caption(_value_or(status['BRF_BMI_CATEGORY'], ""))
+        with col2:
+            st.metric("Smoking", _value_or(status['BRF_SMOKING_STATUS']))
+        with col3:
+            st.metric("Alcohol", _value_or(status['BRF_ALCOHOL_STATUS']))
+        with col4:
+            ccms = status['CCMS_SCORE']
+            st.metric("Comorbidity Score", f"{ccms:.2f}" if pd.notna(ccms) else "Not scored")
+            if pd.notna(status['CCMS_LAST_UPDATED']):
+                st.caption(f"Cambridge score, updated {format_date(status['CCMS_LAST_UPDATED'])}")
+            else:
+                st.caption("Cambridge score")
+
+    with tab_bp:
+        if pd.isna(status['BP_LATEST_DATE']):
+            st.info("No blood pressure data available")
+        else:
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Latest BP", f"{status['BP_SYSTOLIC']:.0f}/{status['BP_DIASTOLIC']:.0f}")
+                st.caption(format_date(status['BP_LATEST_DATE']))
+            with col2:
+                sys_t, dia_t = status['BP_SYSTOLIC_THRESHOLD'], status['BP_DIASTOLIC_THRESHOLD']
+                target = f"{sys_t:.0f}/{dia_t:.0f}" if pd.notna(sys_t) and pd.notna(dia_t) else "N/A"
+                st.metric("Target (NG136)", target)
+                st.caption(_value_or(status['BP_PATIENT_GROUP'], ""))
+            with col3:
+                controlled = status['BP_IS_CONTROLLED']
+                st.metric("Controlled", "Yes" if controlled == True else ("No" if controlled == False else "N/A"))
+                if status['BP_IS_DIAGNOSED_HTN'] == True:
+                    st.caption("Diagnosed hypertension")
+            with col4:
+                st.metric("Stage", _value_or(status['BP_HYPERTENSION_STAGE'], "N/A"))
+            interval = status['BP_MONITORING_INTERVAL']
+            if pd.notna(interval):
+                within = status['BP_WITHIN_INTERVAL']
+                within_text = "within interval" if within == True else "outside interval"
+                st.caption(f"Recommended monitoring: {safe_str(interval)} ({within_text})")
+
+    with tab_poly:
+        if pd.isna(status['POLY_MEDICATION_COUNT']):
+            st.info("No current repeat medications recorded")
+        else:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Current Medications", int(status['POLY_MEDICATION_COUNT']))
+                st.caption(_value_or(status['POLY_MEDICATION_COUNT_BAND'], ""))
+            with col2:
+                st.metric("Polypharmacy (5+)", "Yes" if status['POLY_IS_5PLUS'] == True else "No")
+            with col3:
+                st.metric("Polypharmacy (10+)", "Yes" if status['POLY_IS_10PLUS'] == True else "No")
+            if pd.notna(status['POLY_STATUS_DATE']):
+                st.caption(f"As at {format_date(status['POLY_STATUS_DATE'])} (repeat prescriptions with active supply)")
+            # Snowflake ARRAY arrives as a JSON string (or NaN when absent)
+            med_list = status['POLY_MEDICATION_NAME_LIST']
+            if med_list is not None and not (isinstance(med_list, float) and pd.isna(med_list)):
+                with st.expander("Medication list"):
+                    st.write(med_list)
+
+    with tab_screen:
+        rows = []
+        for label, prefix in [("Cervical", "CERV"), ("Bowel", "BOWEL"), ("Breast", "BREAST")]:
+            eligible = status[f'{prefix}_ELIGIBLE']
+            if eligible != True:
+                rows.append({"Programme": label, "Status": "Not eligible",
+                             "Last Completed": "", "Next Due": "", "Days Overdue": ""})
+            else:
+                overdue = status[f'{prefix}_DAYS_OVERDUE']
+                rows.append({
+                    "Programme": label,
+                    "Status": _value_or(status[f'{prefix}_STATUS'], "Unknown"),
+                    "Last Completed": format_date(status[f'{prefix}_LAST_COMPLETED']),
+                    "Next Due": format_date(status[f'{prefix}_NEXT_DUE']),
+                    "Days Overdue": f"{int(overdue):,}" if pd.notna(overdue) and overdue > 0 else "",
+                })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tab_vacc:
+        rows = []
+        for label, prefix, has_eligible in [
+            ("Pneumococcal", "PNEUMO", False),
+            ("RSV", "RSV", True),
+            ("Shingles", "SHINGLES", True),
+        ]:
+            if has_eligible and status[f'{prefix}_ELIGIBLE'] != True and pd.isna(status[f'{prefix}_STATUS']):
+                rows.append({"Vaccination": label, "Campaign": "", "Status": "Not eligible", "Date": ""})
+                continue
+            if pd.isna(status[f'{prefix}_STATUS']) and pd.isna(status[f'{prefix}_CAMPAIGN']):
+                rows.append({"Vaccination": label, "Campaign": "", "Status": "No record", "Date": ""})
+                continue
+            rows.append({
+                "Vaccination": label,
+                "Campaign": _value_or(status[f'{prefix}_CAMPAIGN'], ""),
+                "Status": _value_or(status[f'{prefix}_STATUS'], "Unknown"),
+                "Date": format_date(status[f'{prefix}_DATE']),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.caption("Latest campaign per programme; age-based eligibility applies (pneumococcal/shingles 65+, RSV 60+)")
 
 
 def render_allergies_panel(person_id):
