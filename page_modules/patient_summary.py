@@ -479,16 +479,49 @@ def _render_health_status_body(person_id, get_person_health_status):
         return problems_slot
 
     with tab_risk:
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             bmi = status['BRF_BMI_VALUE']
             st.metric("BMI", f"{bmi:.1f}" if pd.notna(bmi) else "Not recorded")
-            st.caption(_value_or(status['BRF_BMI_CATEGORY'], ""))
+            bmi_bits = []
+            if pd.notna(status['BRF_BMI_CATEGORY']):
+                bmi_bits.append(safe_str(status['BRF_BMI_CATEGORY']))
+            if pd.notna(status['WAIST_VALUE']):
+                waist = f"Waist {status['WAIST_VALUE']:.0f} cm"
+                if pd.notna(status['WAIST_CATEGORY']):
+                    waist += f" ({safe_str(status['WAIST_CATEGORY'])})"
+                bmi_bits.append(waist)
+            if bmi_bits:
+                st.caption(" · ".join(bmi_bits))
         with col2:
             st.metric("Smoking", _value_or(status['BRF_SMOKING_STATUS']))
         with col3:
             st.metric("Alcohol", _value_or(status['BRF_ALCOHOL_STATUS']))
+            if pd.notna(status['AUDIT_SCORE']):
+                audit_type = safe_str(status['AUDIT_TYPE']) if pd.notna(status['AUDIT_TYPE']) else "AUDIT"
+                audit_text = f"{audit_type} {status['AUDIT_SCORE']:.0f}"
+                if pd.notna(status['AUDIT_RISK_CATEGORY']):
+                    audit_text += f" · {safe_str(status['AUDIT_RISK_CATEGORY'])}"
+                st.caption(audit_text)
         with col4:
+            if pd.notna(status['EFI_CATEGORY']):
+                st.metric("Frailty (eFI)", safe_str(status['EFI_CATEGORY']))
+                frail_bits = []
+                if pd.notna(status['EFI_SCORE']):
+                    frail_bits.append(f"Score {status['EFI_SCORE']:.2f}")
+                if pd.notna(status['EFI_DATE']):
+                    frail_bits.append(format_date(status['EFI_DATE']))
+                if pd.notna(status['ROCKWOOD_DESCRIPTION']):
+                    frail_bits.append(f"Rockwood: {safe_str(status['ROCKWOOD_DESCRIPTION'])}")
+                if frail_bits:
+                    st.caption(" · ".join(frail_bits))
+            elif pd.notna(status['ROCKWOOD_DESCRIPTION']):
+                st.metric("Frailty (Rockwood)", safe_str(status['ROCKWOOD_DESCRIPTION']))
+                if pd.notna(status['ROCKWOOD_SCORE']):
+                    st.caption(f"Score {status['ROCKWOOD_SCORE']:.0f}")
+            else:
+                st.metric("Frailty", "Not assessed")
+        with col5:
             ccms = status['CCMS_SCORE']
             st.metric("Comorbidity Score", f"{ccms:.2f}" if pd.notna(ccms) else "Not scored")
             if pd.notna(status['CCMS_LAST_UPDATED']):
@@ -734,11 +767,26 @@ def render_key_results_tab(person_id):
     def fmt(value, pattern):
         return pattern.format(value) if pd.notna(value) else None
 
+    def fmt_unit(value, unit, pattern="{:.0f}"):
+        if pd.isna(value):
+            return None
+        unit_str = safe_str(unit) if pd.notna(unit) else ""
+        return f"{pattern.format(value)} {unit_str}".strip()
+
+    def high_flag(flag):
+        if flag == True:
+            return "High"
+        if flag == False:
+            return "Normal"
+        return ""
+
     b = biomarkers
-    hb_value = (
-        f"{b['HB_VALUE']:.0f} {_value_or(b['HB_UNIT'], '')}".strip()
-        if pd.notna(b['HB_VALUE']) else None
-    )
+    ckd_interp = ""
+    if b['CKD_CONFIRMED'] == True:
+        ckd_interp = "Confirmed by labs"
+    elif b['CKD_MEETS_CRITERIA'] == True:
+        ckd_interp = "Labs meet CKD criteria"
+
     rows = [
         ("HbA1c", _value_or(b['HBA1C_VALUE'], None), _value_or(b['HBA1C_CATEGORY'], ""), b['HBA1C_DATE']),
         ("Total cholesterol", fmt(b['CHOL_VALUE'], "{:.1f} mmol/L"), _value_or(b['CHOL_CATEGORY'], ""), b['CHOL_DATE']),
@@ -748,7 +796,13 @@ def render_key_results_tab(person_id):
         ("eGFR", fmt(b['EGFR_VALUE'], "{:.0f} mL/min/1.73m²"), _value_or(b['EGFR_CKD_STAGE'], ""), b['EGFR_DATE']),
         ("Creatinine", fmt(b['CREATININE_VALUE'], "{:.0f} µmol/L"), _value_or(b['CREATININE_CATEGORY'], ""), b['CREATININE_DATE']),
         ("Urine ACR", fmt(b['ACR_VALUE'], "{:.1f} mg/mmol"), _value_or(b['ACR_CATEGORY'], ""), b['ACR_DATE']),
-        ("Haemoglobin", hb_value, _value_or(b['HB_CATEGORY'], ""), b['HB_DATE']),
+        ("CKD (labs)", _value_or(b['CKD_STAGE_INFERRED'], None), ckd_interp, b['CKD_DATE']),
+        ("Haemoglobin", fmt_unit(b['HB_VALUE'], b['HB_UNIT']), _value_or(b['HB_CATEGORY'], ""), b['HB_DATE']),
+        ("Platelets", fmt_unit(b['PLATELETS_VALUE'], b['PLATELETS_UNIT']), _value_or(b['PLATELETS_CATEGORY'], ""), b['PLATELETS_DATE']),
+        ("Eosinophils", fmt_unit(b['EOS_VALUE'], b['EOS_UNIT'], "{:.2f}"), _value_or(b['EOS_CATEGORY'], ""), b['EOS_DATE']),
+        ("ALT", fmt(b['ALT_VALUE'], "{:.0f}"), high_flag(b['ALT_IS_HIGH']), b['ALT_DATE']),
+        ("GGT", fmt(b['GGT_VALUE'], "{:.0f}"), high_flag(b['GGT_IS_HIGH']), b['GGT_DATE']),
+        ("Bilirubin", fmt(b['BILIRUBIN_VALUE'], "{:.0f}"), high_flag(b['BILIRUBIN_IS_HIGH']), b['BILIRUBIN_DATE']),
         ("Blood glucose", _value_or(b['GLUCOSE_VALUE'], None),
          ("Fasting" if b['GLUCOSE_IS_FASTING'] == True else ""), b['GLUCOSE_DATE']),
         (f"QRISK{'' if pd.isna(b['QRISK_TYPE']) else ' (' + safe_str(b['QRISK_TYPE']) + ')'}",

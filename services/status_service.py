@@ -58,6 +58,16 @@ def get_person_health_status(person_id):
         bp.is_latest_bp_within_recommended_interval as bp_within_interval,
         ccms.cambridge_comorbidity_score as ccms_score,
         ccms.last_updated               as ccms_last_updated,
+        efi.latest_efi_score_preferred  as efi_score,
+        efi.latest_efi_category_preferred as efi_category,
+        efi.latest_efi_date             as efi_date,
+        rock.rockwood_score             as rockwood_score,
+        rock.rockwood_description       as rockwood_description,
+        waist.waist_circumference_value as waist_value,
+        waist.waist_risk_category       as waist_category,
+        audit.audit_score               as audit_score,
+        audit.audit_type                as audit_type,
+        audit.risk_category             as audit_risk_category,
         cerv.is_screening_eligible      as cerv_eligible,
         cerv.programme_status           as cerv_status,
         cerv.latest_completed_date      as cerv_last_completed,
@@ -97,6 +107,19 @@ def get_person_health_status(person_id):
         WHERE person_id = ?
         QUALIFY ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY last_updated DESC) = 1
     ) ccms ON ccms.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_EFI_LATEST efi
+        ON efi.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_ROCKWOOD_LATEST rock
+        ON rock.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_WAIST_CIRCUMFERENCE_LATEST waist
+        ON waist.person_id = k.person_id
+    LEFT JOIN (
+        SELECT person_id, audit_score, audit_type, risk_category
+        FROM {DB_OBSERVATIONS}.INT_ALCOHOL_AUDIT_SCORES
+        WHERE person_id = ?
+            AND is_valid_score
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY clinical_effective_date DESC) = 1
+    ) audit ON audit.person_id = k.person_id
     LEFT JOIN {TABLE_CERVICAL_SCREENING} cerv
         ON cerv.person_id = k.person_id
     LEFT JOIN {TABLE_BOWEL_SCREENING} bowel
@@ -125,7 +148,8 @@ def get_person_health_status(person_id):
 
     try:
         pid = int(person_id)
-        result = run_query(query, [pid, pid, pid, pid, pid])
+        # Binds in query order: anchor, ccms, audit, pneumo, rsv, shingles
+        result = run_query(query, [pid, pid, pid, pid, pid, pid])
         if result.empty:
             return None
         return result.iloc[0]
@@ -170,6 +194,27 @@ def get_person_biomarkers(person_id):
         hb.inferred_unit                    as hb_unit,
         hb.haemoglobin_category             as hb_category,
         hb.clinical_effective_date          as hb_date,
+        plt.inferred_value                  as platelets_value,
+        plt.inferred_unit                   as platelets_unit,
+        plt.platelets_category              as platelets_category,
+        plt.clinical_effective_date         as platelets_date,
+        eos.inferred_value                  as eos_value,
+        eos.inferred_unit                   as eos_unit,
+        eos.eosinophil_category             as eos_category,
+        eos.clinical_effective_date         as eos_date,
+        lft.alt_value                       as alt_value,
+        lft.is_high_alt                     as alt_is_high,
+        lft.alt_date                        as alt_date,
+        lft.ggt_value                       as ggt_value,
+        lft.is_high_ggt                     as ggt_is_high,
+        lft.ggt_date                        as ggt_date,
+        lft.bilirubin_value                 as bilirubin_value,
+        lft.is_high_bilirubin               as bilirubin_is_high,
+        lft.bilirubin_date                  as bilirubin_date,
+        ckd.latest_ckd_stage_inferred       as ckd_stage_inferred,
+        ckd.has_confirmed_ckd_by_labs       as ckd_confirmed,
+        ckd.latest_labs_meet_ckd_criteria   as ckd_meets_criteria,
+        ckd.latest_egfr_date                as ckd_date,
         glucose.blood_glucose_display       as glucose_value,
         glucose.is_fasting                  as glucose_is_fasting,
         glucose.clinical_effective_date     as glucose_date,
@@ -192,6 +237,14 @@ def get_person_biomarkers(person_id):
         ON acr.person_id = k.person_id
     LEFT JOIN {DB_OBSERVATIONS}.INT_HAEMOGLOBIN_LATEST hb
         ON hb.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_PLATELETS_LATEST plt
+        ON plt.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_EOSINOPHIL_COUNT_LATEST eos
+        ON eos.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_LFT_LATEST lft
+        ON lft.person_id = k.person_id
+    LEFT JOIN {DB_OBSERVATIONS}.INT_CKD_LAB_CLASSIFICATION ckd
+        ON ckd.person_id = k.person_id
     LEFT JOIN {DB_OBSERVATIONS}.INT_BLOOD_GLUCOSE_LATEST glucose
         ON glucose.person_id = k.person_id
     LEFT JOIN {DB_OBSERVATIONS}.INT_QRISK_LATEST qrisk
