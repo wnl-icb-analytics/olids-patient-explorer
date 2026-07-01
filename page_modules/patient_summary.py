@@ -4,16 +4,19 @@ Patient summary page - landing page when viewing a patient record
 
 import streamlit as st
 import pandas as pd
-import altair as alt
 from datetime import datetime
 from services.patient_service import get_patient_demographics, get_patient_registration_history, get_patient_ltc_summary
-from services.record_service import get_observation_summary, get_medication_summary, get_appointment_summary
-from utils.helpers import render_status_badge, get_status_badge_html, format_date, format_boolean, safe_str, format_month_year
+from services.record_service import get_record_summary
+from utils.helpers import get_status_badge_html, format_date, format_boolean, safe_str, format_month_year
 
 
 def render_patient_summary():
     """
     Render the patient summary page with demographics and navigation.
+
+    Sections render top-down in cost order: the header needs only the
+    single-row demographics lookup, so it paints before the heavier
+    record-summary aggregate runs.
     """
     # Check if patient is selected
     if "selected_patient" not in st.session_state or not st.session_state.selected_patient:
@@ -26,34 +29,29 @@ def render_patient_summary():
 
     sk_patient_id = st.session_state.selected_patient
 
-    # Load patient data with spinner (before showing any UI)
-    with st.spinner("Loading patient summary..."):
-        # Load patient demographics
-        demographics = get_patient_demographics(sk_patient_id)
-
-        if demographics.empty:
-            st.error("Failed to load patient demographics")
-            return
-
-        patient = demographics.iloc[0]
-        person_id = patient['PERSON_ID']  # Get person_id for queries that need it
-
-        # Get observation, medication, and appointment summaries
-        obs_summary = get_observation_summary(person_id)
-        med_summary = get_medication_summary(person_id)
-        appt_summary = get_appointment_summary(person_id)
-
     # Back button
     if st.button("← Back to Search"):
         st.session_state.page = "search"
         st.session_state.search_results = None
         st.rerun()
 
-    # Render patient header
+    # Demographics: fast single-row lookup, paints the header immediately
+    demographics = get_patient_demographics(sk_patient_id)
+
+    if demographics.empty:
+        st.error("Failed to load patient demographics")
+        return
+
+    patient = demographics.iloc[0]
+    person_id = int(patient['PERSON_ID'])
+
     render_patient_header(patient)
 
-    # Render summary metrics
-    render_summary_metrics(obs_summary, med_summary, appt_summary, patient)
+    # Record summary: single combined aggregate query (the expensive bit)
+    with st.spinner("Loading record summary..."):
+        summary = get_record_summary(person_id)
+
+    render_summary_metrics(summary)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -86,7 +84,7 @@ def render_patient_summary():
     with tab2:
         render_registration_info(patient)
         st.markdown("<br>", unsafe_allow_html=True)
-        render_registration_history(sk_patient_id)
+        render_registration_history(person_id)
 
     with tab3:
         render_geography_info(patient)
@@ -97,12 +95,12 @@ def render_patient_summary():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Long-term conditions summary
-    render_ltc_summary(sk_patient_id)
+    render_ltc_summary(person_id)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Problems section (lazy loaded)
-    render_problems_summary(sk_patient_id)
+    # Problems section (loaded on demand)
+    render_problems_summary(person_id)
 
 
 def render_patient_header(patient):
@@ -118,47 +116,44 @@ def render_patient_header(patient):
         patient['IS_DECEASED'],
         patient.get('INACTIVE_REASON')
     )
-    
+
     # Title with inline status badge
     st.markdown(f"## Patient Record: {patient['SK_PATIENT_ID']} {badge_html}", unsafe_allow_html=True)
     st.markdown(f"**Person ID:** {patient['PERSON_ID']}")
 
 
-def render_summary_metrics(obs_summary, med_summary, appt_summary, patient):
+def render_summary_metrics(summary):
     """
     Render summary metrics.
 
     Args:
-        obs_summary: Observation summary dictionary
-        med_summary: Medication summary dictionary
-        appt_summary: Appointment summary dictionary
-        patient: Patient demographics row
+        summary: Record summary dictionary from get_record_summary
     """
     st.markdown("### Record Summary")
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("Observations", f"{obs_summary['total_observations']:,}")
+        st.metric("Observations", f"{summary['total_observations']:,}")
 
     with col2:
-        current_count = med_summary['current_medications']
-        total_count = med_summary['total_medications']
-        st.metric("Medications (Current)", f"{current_count:,}")
-        st.caption(f"Total: {total_count:,}")
+        st.metric("Medications (Current)", f"{summary['current_medications']:,}")
+        st.caption(f"Total: {summary['total_medications']:,}")
 
     with col3:
-        appts_12m = appt_summary['appointments_last_12m']
-        total_appts = appt_summary['total_appointments']
-        st.metric("Appointments (12m)", f"{appts_12m:,}")
-        st.caption(f"All time: {total_appts:,}")
+        st.metric("Appointments (12m)", f"{summary['appointments_last_12m']:,}")
+        st.caption(f"All time: {summary['total_appointments']:,}")
 
     with col4:
-        most_recent_obs = obs_summary['most_recent_date']
-        most_recent_med = med_summary['most_recent_date']
-        most_recent_appt = appt_summary['most_recent_date']
-        most_recent = max(filter(None, [most_recent_obs, most_recent_med, most_recent_appt]), default=None)
-        most_recent_str = format_date(most_recent) if most_recent else "N/A"
+        most_recent = max(
+            filter(pd.notna, [
+                summary['obs_most_recent'],
+                summary['med_most_recent'],
+                summary['appt_most_recent'],
+            ]),
+            default=None
+        )
+        most_recent_str = format_date(most_recent) if most_recent is not None else "N/A"
         st.metric("Most Recent", most_recent_str)
 
 
@@ -283,30 +278,30 @@ def render_language_info(patient):
             st.markdown(f"Type: {safe_str(patient['INTERPRETER_TYPE'])}")
 
 
-def render_registration_history(sk_patient_id):
+def render_registration_history(person_id):
     """
     Render registration history as a markdown list.
 
     Args:
-        sk_patient_id: Patient identifier (sk_patient_id)
+        person_id: Person identifier
     """
-    history = get_patient_registration_history(sk_patient_id)
+    history = get_patient_registration_history(person_id)
 
     if history.empty:
         st.info("No registration history available")
         return
 
     total_periods = len(history)
-    
+
     # Sort by period sequence descending (most recent first)
     history = history.sort_values('PERIOD_SEQUENCE', ascending=False)
-    
+
     st.markdown("### Registration History")
-    
+
     # Display as bullet points
     for idx, row in history.iterrows():
         effective_start = format_date(row['EFFECTIVE_START_DATE'])
-        
+
         # Handle end date - check for NaT/None properly
         end_date = row['EFFECTIVE_END_DATE']
         if pd.isna(end_date) or end_date is None:
@@ -315,27 +310,27 @@ def render_registration_history(sk_patient_id):
             effective_end = format_date(end_date)
             if effective_end == "N/A":
                 effective_end = "Ongoing"
-        
+
         practice_name = safe_str(row['PRACTICE_NAME'])
         practice_code = safe_str(row['PRACTICE_CODE'])
-        
+
         # Build the bullet point text
         bullet_text = f"**Period {row['PERIOD_SEQUENCE']}**: "
         bullet_text += f"{effective_start} → {effective_end}"
         bullet_text += f" | {practice_name}"
-        
+
         if practice_code and practice_code != "N/A":
             bullet_text += f" ({practice_code})"
-        
+
         # Add current badge at the end if current
         if row['IS_CURRENT']:
             bullet_text += ' <span style="background-color: #28a745; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 600;">CURRENT</span>'
-        
+
         st.markdown(f"- {bullet_text}", unsafe_allow_html=True)
-    
+
     st.caption(f"Showing {total_periods} registration period(s)")
     st.markdown("<br>", unsafe_allow_html=True)
-    
+
     # Detailed history in expandable section
     with st.expander("📜 View Detailed Registration History", expanded=False):
         for idx, row in history.iterrows():
@@ -369,14 +364,14 @@ def render_registration_history(sk_patient_id):
                 st.markdown("---")
 
 
-def render_ltc_summary(sk_patient_id):
+def render_ltc_summary(person_id):
     """
     Render long-term conditions summary section.
 
     Args:
-        sk_patient_id: Patient identifier (sk_patient_id)
+        person_id: Person identifier
     """
-    ltc_data = get_patient_ltc_summary(sk_patient_id)
+    ltc_data = get_patient_ltc_summary(person_id)
 
     if ltc_data.empty:
         return
@@ -404,26 +399,59 @@ def render_ltc_summary(sk_patient_id):
         st.markdown("")
 
 
-def render_problems_summary(sk_patient_id):
+def format_problem_display(row):
+    """Problem name with a confidential marker where flagged."""
+    prefix = "🔒 " if row.get('IS_CONFIDENTIAL') else ""
+    return f"{prefix}{safe_str(row['MAPPED_CONCEPT_DISPLAY'])}"
+
+
+def render_problems_table(problems):
+    """Render a problems DataFrame as a display table."""
+    from utils.helpers import format_practitioner_name
+
+    display_df = problems.copy()
+    display_df['DATE_DISPLAY'] = display_df['CLINICAL_EFFECTIVE_DATE'].apply(format_date)
+    display_df['PROBLEM'] = display_df.apply(format_problem_display, axis=1)
+    display_df['PRACTITIONER'] = display_df.apply(
+        lambda row: format_practitioner_name(
+            row['PRACTITIONER_LAST_NAME'],
+            row['PRACTITIONER_FIRST_NAME'],
+            row['PRACTITIONER_TITLE']
+        ),
+        axis=1
+    )
+
+    display_df = display_df[['DATE_DISPLAY', 'PROBLEM', 'PRACTITIONER']]
+    display_df.columns = ['Date', 'Problem', 'Practitioner']
+
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        height=300
+    )
+
+
+def render_problems_summary(person_id):
     """
-    Render problems summary section (lazy loaded).
+    Render problems summary section. Loaded on demand: expander bodies
+    execute even when collapsed, so the query only runs once the user
+    asks for it (cached thereafter).
 
     Args:
-        sk_patient_id: Patient identifier (sk_patient_id)
+        person_id: Person identifier
     """
     from services.record_service import get_patient_problems
-    from services.patient_service import get_patient_demographics
-    from utils.helpers import format_practitioner_name, safe_str
-    
+
     with st.expander("🏥 Problems (Active & Past)", expanded=False):
+        if st.session_state.get("problems_person") != person_id:
+            if st.button("Load problems"):
+                st.session_state.problems_person = person_id
+                st.rerun()
+            return
+
         with st.spinner("Loading problems..."):
-            # Get person_id from sk_patient_id for the query
-            demographics = get_patient_demographics(sk_patient_id)
-            if not demographics.empty:
-                person_id = demographics.iloc[0]['PERSON_ID']
-                problems = get_patient_problems(person_id)
-            else:
-                problems = pd.DataFrame()
+            problems = get_patient_problems(person_id)
 
         if problems.empty:
             st.info("No problems found")
@@ -433,16 +461,19 @@ def render_problems_summary(sk_patient_id):
         # Current: problem_end_date is NULL or in the future
         # Past: problem_end_date is set and in the past
         now = datetime.now()
-        
+
         active_problems = problems[
-            (problems['PROBLEM_END_DATE'].isna()) | 
+            (problems['PROBLEM_END_DATE'].isna()) |
             (pd.to_datetime(problems['PROBLEM_END_DATE']) > now)
         ].copy()
-        
+
         past_problems = problems[
-            (problems['PROBLEM_END_DATE'].notna()) & 
+            (problems['PROBLEM_END_DATE'].notna()) &
             (pd.to_datetime(problems['PROBLEM_END_DATE']) <= now)
         ].copy()
+
+        if problems['IS_CONFIDENTIAL'].any():
+            st.caption("🔒 marks records flagged confidential in the source system")
 
         # Active Problems Section
         st.markdown("### Current Problems")
@@ -450,32 +481,7 @@ def render_problems_summary(sk_patient_id):
             st.markdown("No current problems")
         else:
             st.markdown(f"**Showing {len(active_problems):,} current problem(s)**")
-            
-            # Prepare display dataframe
-            display_df = active_problems.copy()
-            display_df['DATE_DISPLAY'] = display_df['CLINICAL_EFFECTIVE_DATE'].apply(format_date)
-            display_df['PRACTITIONER'] = display_df.apply(
-                lambda row: format_practitioner_name(
-                    row['PRACTITIONER_LAST_NAME'],
-                    row['PRACTITIONER_FIRST_NAME'],
-                    row['PRACTITIONER_TITLE']
-                ),
-                axis=1
-            )
-            
-            display_df = display_df[[
-                'DATE_DISPLAY',
-                'MAPPED_CONCEPT_DISPLAY',
-                'PRACTITIONER'
-            ]]
-            display_df.columns = ['Date', 'Problem', 'Practitioner']
-            
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                hide_index=True,
-                height=300
-            )
+            render_problems_table(active_problems)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -485,29 +491,4 @@ def render_problems_summary(sk_patient_id):
             st.markdown("No past problems")
         else:
             st.markdown(f"**Showing {len(past_problems):,} past problem(s)**")
-            
-            # Prepare display dataframe
-            display_df = past_problems.copy()
-            display_df['DATE_DISPLAY'] = display_df['CLINICAL_EFFECTIVE_DATE'].apply(format_date)
-            display_df['PRACTITIONER'] = display_df.apply(
-                lambda row: format_practitioner_name(
-                    row['PRACTITIONER_LAST_NAME'],
-                    row['PRACTITIONER_FIRST_NAME'],
-                    row['PRACTITIONER_TITLE']
-                ),
-                axis=1
-            )
-            
-            display_df = display_df[[
-                'DATE_DISPLAY',
-                'MAPPED_CONCEPT_DISPLAY',
-                'PRACTITIONER'
-            ]]
-            display_df.columns = ['Date', 'Problem', 'Practitioner']
-            
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                hide_index=True,
-                height=300
-            )
+            render_problems_table(past_problems)

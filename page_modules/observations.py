@@ -23,13 +23,12 @@ def render_observations():
 
     sk_patient_id = st.session_state.selected_patient
 
-    # Get person_id from sk_patient_id for queries
-    from services.patient_service import get_patient_demographics
-    demographics = get_patient_demographics(sk_patient_id)
-    if demographics.empty:
-        st.error("Failed to load patient demographics")
+    # Resolve person_id for record queries
+    from services.patient_service import get_person_id
+    person_id = get_person_id(sk_patient_id)
+    if person_id is None:
+        st.error("Failed to resolve patient identifier")
         return
-    person_id = demographics.iloc[0]['PERSON_ID']
 
     # Navigation buttons
     col1, col2, col3 = st.columns([1, 1, 4])
@@ -102,7 +101,16 @@ def render_observations():
         display_df['IS_PROBLEM_DISPLAY'] = display_df['IS_PROBLEM'].apply(
             lambda x: "Yes" if x == True else "No"
         )
-        
+
+        # Mark confidential records
+        display_df['OBSERVATION_DISPLAY'] = display_df.apply(
+            lambda row: ("🔒 " if row['IS_CONFIDENTIAL'] else "") + safe_str(row['MAPPED_CONCEPT_DISPLAY']),
+            axis=1
+        )
+        if display_df['IS_CONFIDENTIAL'].any():
+            st.caption("🔒 marks records flagged confidential in the source system")
+
+
         # Format episodicity display
         display_df['EPISODICITY_DISPLAY'] = display_df['EPISODICITY_DISPLAY'].apply(
             lambda x: safe_str(x) if pd.notna(x) and x != "N/A" else ""
@@ -112,7 +120,7 @@ def render_observations():
         display_df = display_df[[
             'CLINICAL_EFFECTIVE_DATE',
             'MAPPED_CONCEPT_CODE',
-            'MAPPED_CONCEPT_DISPLAY',
+            'OBSERVATION_DISPLAY',
             'VALUE',
             'IS_PROBLEM_DISPLAY',
             'EPISODICITY_DISPLAY',

@@ -1,57 +1,124 @@
 """
-Patient records service for observations and medications
+Patient records service for observations, medications, appointments and problems
 """
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-from config import TABLE_OBSERVATION, TABLE_MEDICATION_ORDER, TABLE_MEDICATION_STATEMENT, TABLE_PRACTITIONER, TABLE_CONCEPT, MAX_OBSERVATIONS
-from database import get_connection
+from config import (
+    TABLE_OBSERVATION,
+    TABLE_MEDICATION_ORDER,
+    TABLE_MEDICATION_STATEMENT,
+    TABLE_PRACTITIONER,
+    TABLE_CONCEPT,
+    TABLE_APPOINTMENT,
+    TABLE_APPOINTMENT_PRACTITIONER,
+    MAX_OBSERVATIONS,
+)
+from database import run_query
+
+EMPTY_RECORD_SUMMARY = {
+    "total_observations": 0,
+    "obs_earliest": None,
+    "obs_most_recent": None,
+    "total_medications": 0,
+    "current_medications": 0,
+    "med_earliest": None,
+    "med_most_recent": None,
+    "total_appointments": 0,
+    "appointments_last_12m": 0,
+    "appt_earliest": None,
+    "appt_most_recent": None,
+}
 
 
-def get_observation_summary(person_id):
+def get_record_summary(person_id):
     """
-    Get summary statistics for patient observations.
+    Get observation, medication and appointment summary stats in a single
+    round-trip (three single-row aggregates cross-joined).
 
     Args:
-        person_id: Patient identifier
+        person_id: Person identifier
 
     Returns:
-        Dictionary with summary stats
+        Dictionary with summary stats (EMPTY_RECORD_SUMMARY keys)
     """
-    conn = get_connection()
-
     query = f"""
     SELECT
-        COUNT(*) as total_observations,
-        MIN(clinical_effective_date) as earliest_date,
-        MAX(clinical_effective_date) as most_recent_date
-    FROM {TABLE_OBSERVATION}
-    WHERE person_id = '{person_id}'
+        obs.total_observations,
+        obs.obs_earliest,
+        obs.obs_most_recent,
+        med.total_medications,
+        med.current_medications,
+        med.med_earliest,
+        med.med_most_recent,
+        appt.total_appointments,
+        appt.appointments_last_12m,
+        appt.appt_earliest,
+        appt.appt_most_recent
+    FROM (
+        SELECT
+            COUNT(*) as total_observations,
+            MIN(clinical_effective_date) as obs_earliest,
+            MAX(clinical_effective_date) as obs_most_recent
+        FROM {TABLE_OBSERVATION}
+        WHERE person_id = ?
+    ) obs
+    CROSS JOIN (
+        SELECT
+            COUNT(*) as total_medications,
+            MIN(m.clinical_effective_date) as med_earliest,
+            MAX(m.clinical_effective_date) as med_most_recent,
+            COUNT(CASE
+                WHEN ms.cancellation_date IS NOT NULL AND ms.cancellation_date <= CURRENT_DATE() THEN NULL
+                WHEN ms.expiry_date IS NOT NULL AND ms.expiry_date < CURRENT_DATE() THEN NULL
+                WHEN ms.is_active = FALSE THEN NULL
+                WHEN m.duration_days IS NOT NULL
+                    AND DATEADD(day, m.duration_days, m.clinical_effective_date) > CURRENT_DATE()
+                THEN 1
+            END) as current_medications
+        FROM {TABLE_MEDICATION_ORDER} m
+        LEFT JOIN {TABLE_MEDICATION_STATEMENT} ms
+            ON m.medication_statement_id = ms.id
+        WHERE m.person_id = ?
+    ) med
+    CROSS JOIN (
+        SELECT
+            COUNT(*) as total_appointments,
+            MIN(start_date) as appt_earliest,
+            MAX(CASE WHEN start_date < CURRENT_TIMESTAMP() THEN start_date END) as appt_most_recent,
+            COUNT(CASE
+                WHEN start_date >= DATEADD(month, -12, CURRENT_DATE())
+                THEN 1
+            END) as appointments_last_12m
+        FROM {TABLE_APPOINTMENT}
+        WHERE person_id = ?
+    ) appt
     """
 
     try:
-        result = conn.sql(query).to_pandas()
+        pid = int(person_id)
+        result = run_query(query, [pid, pid, pid])
         if result.empty:
-            return {
-                "total_observations": 0,
-                "earliest_date": None,
-                "most_recent_date": None
-            }
+            return dict(EMPTY_RECORD_SUMMARY)
 
         row = result.iloc[0]
         return {
             "total_observations": int(row["TOTAL_OBSERVATIONS"]),
-            "earliest_date": row["EARLIEST_DATE"],
-            "most_recent_date": row["MOST_RECENT_DATE"]
+            "obs_earliest": row["OBS_EARLIEST"],
+            "obs_most_recent": row["OBS_MOST_RECENT"],
+            "total_medications": int(row["TOTAL_MEDICATIONS"]),
+            "current_medications": int(row["CURRENT_MEDICATIONS"]),
+            "med_earliest": row["MED_EARLIEST"],
+            "med_most_recent": row["MED_MOST_RECENT"],
+            "total_appointments": int(row["TOTAL_APPOINTMENTS"]),
+            "appointments_last_12m": int(row["APPOINTMENTS_LAST_12M"]),
+            "appt_earliest": row["APPT_EARLIEST"],
+            "appt_most_recent": row["APPT_MOST_RECENT"],
         }
     except Exception as e:
-        st.error(f"Error loading observation summary: {str(e)}")
-        return {
-            "total_observations": 0,
-            "earliest_date": None,
-            "most_recent_date": None
-        }
+        st.error(f"Error loading record summary: {str(e)}")
+        return dict(EMPTY_RECORD_SUMMARY)
 
 
 def get_patient_observations(person_id, date_from=None, date_to=None, search_term=""):
@@ -59,7 +126,7 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
     Get observations for a patient with optional filters.
 
     Args:
-        person_id: Patient identifier
+        person_id: Person identifier
         date_from: Start date filter (optional)
         date_to: End date filter (optional)
         search_term: Search term for code or description (optional)
@@ -67,23 +134,23 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
     Returns:
         DataFrame with observations
     """
-    conn = get_connection()
-
-    # Build WHERE clause
-    where_clauses = [f"o.person_id = '{person_id}'"]
+    where_clauses = ["o.person_id = ?"]
+    params = [int(person_id)]
 
     if date_from:
-        where_clauses.append(f"o.clinical_effective_date >= '{date_from}'")
+        where_clauses.append("o.clinical_effective_date >= ?")
+        params.append(str(date_from))
 
     if date_to:
-        where_clauses.append(f"o.clinical_effective_date <= '{date_to}'")
+        where_clauses.append("o.clinical_effective_date <= ?")
+        params.append(str(date_to))
 
     if search_term and search_term.strip():
-        search_pattern = f"%{search_term}%"
         where_clauses.append(
-            f"(o.mapped_concept_code ILIKE '{search_pattern}' "
-            f"OR o.mapped_concept_display ILIKE '{search_pattern}')"
+            "(o.mapped_concept_code ILIKE ? OR o.mapped_concept_display ILIKE ?)"
         )
+        pattern = f"%{search_term.strip()}%"
+        params.extend([pattern, pattern])
 
     where_sql = " AND ".join(where_clauses)
 
@@ -96,6 +163,7 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
         o.result_text,
         o.result_unit_display,
         o.is_problem,
+        o.is_confidential,
         COALESCE(episodicity_concept.display, o.episodicity_source_concept_id::varchar) as episodicity_display,
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
@@ -112,69 +180,10 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
     """
 
     try:
-        result = conn.sql(query).to_pandas()
-        return result
+        return run_query(query, params)
     except Exception as e:
         st.error(f"Error loading observations: {str(e)}")
         return pd.DataFrame()
-
-
-def get_medication_summary(person_id):
-    """
-    Get summary statistics for patient medications.
-
-    Args:
-        person_id: Patient identifier
-
-    Returns:
-        Dictionary with summary stats
-    """
-    conn = get_connection()
-
-    query = f"""
-    SELECT
-        COUNT(*) as total_medications,
-        MIN(m.clinical_effective_date) as earliest_date,
-        MAX(m.clinical_effective_date) as most_recent_date,
-        COUNT(CASE
-            WHEN ms.cancellation_date IS NOT NULL AND ms.cancellation_date <= CURRENT_DATE() THEN NULL
-            WHEN ms.expiry_date IS NOT NULL AND ms.expiry_date < CURRENT_DATE() THEN NULL
-            WHEN ms.is_active = FALSE THEN NULL
-            WHEN m.duration_days IS NOT NULL
-                AND DATEADD(day, m.duration_days, m.clinical_effective_date) > CURRENT_DATE()
-            THEN 1
-        END) as current_medications
-    FROM {TABLE_MEDICATION_ORDER} m
-    LEFT JOIN {TABLE_MEDICATION_STATEMENT} ms
-        ON m.medication_statement_id = ms.id
-    WHERE m.person_id = '{person_id}'
-    """
-
-    try:
-        result = conn.sql(query).to_pandas()
-        if result.empty:
-            return {
-                "total_medications": 0,
-                "current_medications": 0,
-                "earliest_date": None,
-                "most_recent_date": None
-            }
-
-        row = result.iloc[0]
-        return {
-            "total_medications": int(row["TOTAL_MEDICATIONS"]),
-            "current_medications": int(row["CURRENT_MEDICATIONS"]),
-            "earliest_date": row["EARLIEST_DATE"],
-            "most_recent_date": row["MOST_RECENT_DATE"]
-        }
-    except Exception as e:
-        st.error(f"Error loading medication summary: {str(e)}")
-        return {
-            "total_medications": 0,
-            "current_medications": 0,
-            "earliest_date": None,
-            "most_recent_date": None
-        }
 
 
 def get_patient_medications(person_id, date_from=None, date_to=None, search_term="", current_only=False):
@@ -182,7 +191,7 @@ def get_patient_medications(person_id, date_from=None, date_to=None, search_term
     Get medications for a patient with optional filters.
 
     Args:
-        person_id: Patient identifier
+        person_id: Person identifier
         date_from: Start date filter (optional)
         date_to: End date filter (optional)
         search_term: Search term for code or description (optional)
@@ -191,23 +200,23 @@ def get_patient_medications(person_id, date_from=None, date_to=None, search_term
     Returns:
         DataFrame with medications
     """
-    conn = get_connection()
-
-    # Build WHERE clause
-    where_clauses = [f"m.person_id = '{person_id}'"]
+    where_clauses = ["m.person_id = ?"]
+    params = [int(person_id)]
 
     if date_from:
-        where_clauses.append(f"m.clinical_effective_date >= '{date_from}'")
+        where_clauses.append("m.clinical_effective_date >= ?")
+        params.append(str(date_from))
 
     if date_to:
-        where_clauses.append(f"m.clinical_effective_date <= '{date_to}'")
+        where_clauses.append("m.clinical_effective_date <= ?")
+        params.append(str(date_to))
 
     if search_term and search_term.strip():
-        search_pattern = f"%{search_term}%"
         where_clauses.append(
-            f"(m.mapped_concept_code ILIKE '{search_pattern}' "
-            f"OR m.mapped_concept_display ILIKE '{search_pattern}')"
+            "(m.mapped_concept_code ILIKE ? OR m.mapped_concept_display ILIKE ?)"
         )
+        pattern = f"%{search_term.strip()}%"
+        params.extend([pattern, pattern])
 
     # Filter for current medications only
     if current_only:
@@ -216,7 +225,7 @@ def get_patient_medications(person_id, date_from=None, date_to=None, search_term
             AND (ms.expiry_date IS NULL OR ms.expiry_date >= CURRENT_DATE())
             AND (ms.is_active IS NULL OR ms.is_active = TRUE)
             AND (
-                m.duration_days IS NULL 
+                m.duration_days IS NULL
                 OR DATEADD(day, m.duration_days, m.clinical_effective_date) >= CURRENT_DATE()
             )
         """)
@@ -234,6 +243,7 @@ def get_patient_medications(person_id, date_from=None, date_to=None, search_term
         m.duration_days,
         m.estimated_cost,
         m.issue_method_description,
+        m.is_confidential,
         ms.bnf_reference,
         ms.authorisation_type_display,
         ms.is_active as statement_is_active,
@@ -254,8 +264,7 @@ def get_patient_medications(person_id, date_from=None, date_to=None, search_term
     """
 
     try:
-        result = conn.sql(query).to_pandas()
-        return result
+        return run_query(query, params)
     except Exception as e:
         st.error(f"Error loading medications: {str(e)}")
         return pd.DataFrame()
@@ -284,64 +293,12 @@ def calculate_date_range(range_option):
     return date_from, date_to
 
 
-def get_appointment_summary(person_id):
-    """
-    Get summary statistics for patient appointments.
-
-    Args:
-        person_id: Patient identifier
-
-    Returns:
-        Dictionary with summary stats
-    """
-    from config import TABLE_APPOINTMENT
-    conn = get_connection()
-
-    query = f"""
-    SELECT
-        COUNT(*) as total_appointments,
-        MIN(start_date) as earliest_date,
-        MAX(CASE WHEN start_date < CURRENT_TIMESTAMP() THEN start_date END) as most_recent_date,
-        COUNT(CASE
-            WHEN start_date >= DATEADD(month, -12, CURRENT_DATE())
-            THEN 1
-        END) as appointments_last_12m
-    FROM {TABLE_APPOINTMENT}
-    WHERE person_id = '{person_id}'
-    """
-
-    try:
-        result = conn.sql(query).to_pandas()
-        if result.empty:
-            return {
-                "total_appointments": 0,
-                "appointments_last_12m": 0,
-                "earliest_date": None,
-                "most_recent_date": None
-            }
-
-        row = result.iloc[0]
-        return {
-            "total_appointments": int(row["TOTAL_APPOINTMENTS"]),
-            "appointments_last_12m": int(row["APPOINTMENTS_LAST_12M"]),
-            "earliest_date": row["EARLIEST_DATE"],
-            "most_recent_date": row["MOST_RECENT_DATE"]
-        }
-    except Exception as e:
-        st.error(f"Error loading appointment summary: {str(e)}")
-        return {
-            "total_appointments": 0,
-            "earliest_date": None,
-            "most_recent_date": None
-        }
-
-
 def get_patient_appointments(person_id, date_from=None, date_to=None, include_future=True):
     """
     Get appointments for a patient with optional filters.
 
     Args:
-        person_id: Patient identifier
+        person_id: Person identifier
         date_from: Start date filter (optional)
         date_to: End date filter (optional)
         include_future: Include future appointments regardless of date_from (default True)
@@ -349,22 +306,19 @@ def get_patient_appointments(person_id, date_from=None, date_to=None, include_fu
     Returns:
         DataFrame with appointments
     """
-    from config import TABLE_APPOINTMENT, TABLE_APPOINTMENT_PRACTITIONER, TABLE_PRACTITIONER, MAX_OBSERVATIONS
-    conn = get_connection()
+    where_clauses = ["a.person_id = ?"]
+    params = [int(person_id)]
 
-    # Build WHERE clause - always include future appointments if requested
-    if include_future and date_from:
-        where_clauses = [
-            f"a.person_id = '{person_id}'",
-            f"(a.start_date >= '{date_from}' OR a.start_date >= CURRENT_TIMESTAMP())"
-        ]
-    else:
-        where_clauses = [f"a.person_id = '{person_id}'"]
-        if date_from:
-            where_clauses.append(f"a.start_date >= '{date_from}'")
+    if date_from:
+        if include_future:
+            where_clauses.append("(a.start_date >= ? OR a.start_date >= CURRENT_TIMESTAMP())")
+        else:
+            where_clauses.append("a.start_date >= ?")
+        params.append(str(date_from))
 
     if date_to:
-        where_clauses.append(f"a.start_date <= '{date_to}'")
+        where_clauses.append("a.start_date <= ?")
+        params.append(str(date_to))
 
     where_sql = " AND ".join(where_clauses)
 
@@ -394,8 +348,7 @@ def get_patient_appointments(person_id, date_from=None, date_to=None, include_fu
     """
 
     try:
-        result = conn.sql(query).to_pandas()
-        return result
+        return run_query(query, params)
     except Exception as e:
         st.error(f"Error loading appointments: {str(e)}")
         return pd.DataFrame()
@@ -406,19 +359,18 @@ def get_patient_problems(person_id):
     Get active and past problems for a patient from observations table.
 
     Args:
-        person_id: Patient identifier
+        person_id: Person identifier
 
     Returns:
         DataFrame with problems including episodicity
     """
-    conn = get_connection()
-
     query = f"""
     SELECT
         o.clinical_effective_date,
         o.mapped_concept_code,
         o.mapped_concept_display,
         o.is_problem,
+        o.is_confidential,
         o.problem_end_date,
         COALESCE(episodicity_concept.display, o.episodicity_source_concept_id::varchar) as episodicity,
         p.surname as practitioner_last_name,
@@ -430,7 +382,7 @@ def get_patient_problems(person_id):
         ON o.practitioner_id = p.id
     LEFT JOIN {TABLE_CONCEPT} episodicity_concept
         ON o.episodicity_source_concept_id = episodicity_concept.concept_id
-    WHERE o.person_id = '{person_id}'
+    WHERE o.person_id = ?
         AND o.is_problem = TRUE
         AND (o.is_problem_deleted IS NULL OR o.is_problem_deleted = FALSE)
     ORDER BY o.clinical_effective_date DESC
@@ -438,8 +390,7 @@ def get_patient_problems(person_id):
     """
 
     try:
-        result = conn.sql(query).to_pandas()
-        return result
+        return run_query(query, [int(person_id)])
     except Exception as e:
         st.error(f"Error loading problems: {str(e)}")
         return pd.DataFrame()

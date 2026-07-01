@@ -38,6 +38,10 @@ PAGE_CONFIG = {
 # Query limits
 MAX_OBSERVATIONS = 10000
 
+# Query result cache lifetime (seconds). Source data refreshes daily, so this
+# only bounds staleness within a session.
+CACHE_TTL = 600
+
 # Date range filter options
 DATE_RANGE_OPTIONS = {
     "Last 12 months": 365,

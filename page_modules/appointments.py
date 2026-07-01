@@ -25,13 +25,12 @@ def render_appointments():
 
     sk_patient_id = st.session_state.selected_patient
 
-    # Get person_id from sk_patient_id for queries
-    from services.patient_service import get_patient_demographics
-    demographics = get_patient_demographics(sk_patient_id)
-    if demographics.empty:
-        st.error("Failed to load patient demographics")
+    # Resolve person_id for record queries
+    from services.patient_service import get_person_id
+    person_id = get_person_id(sk_patient_id)
+    if person_id is None:
+        st.error("Failed to resolve patient identifier")
         return
-    person_id = demographics.iloc[0]['PERSON_ID']
 
     # Navigation buttons
     col1, col2, col3 = st.columns([1, 1, 4])
