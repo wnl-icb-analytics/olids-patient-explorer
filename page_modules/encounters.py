@@ -10,7 +10,7 @@ from services.record_service import get_patient_encounters, get_patient_encounte
 from utils.helpers import format_date, safe_str, format_practitioner_name
 from config import ENCOUNTER_DATE_RANGE_OPTIONS, MAX_ENCOUNTER_GROUPS
 
-ITEM_TYPE_ORDER = ["Observation", "Medication", "Referral", "Procedure"]
+ITEM_TYPE_ORDER = ["Observation", "Medication", "Referral", "Procedure request", "Test request"]
 
 
 def render_encounters():
@@ -133,7 +133,10 @@ def render_encounter_section(enc, enc_items):
     with st.container(border=True):
         st.markdown(f"**{format_date(enc['CLINICAL_EFFECTIVE_DATE'])} — {practitioner}**")
         st.caption(" · ".join(context_parts))
-        display_df = prepare_items_table(enc_items)
+        # Item dates shown: requests are planned for future dates and
+        # observations can be backdated, so they can differ from the
+        # encounter date
+        display_df = prepare_items_table(enc_items, include_date=True)
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 

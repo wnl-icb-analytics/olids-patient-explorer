@@ -656,7 +656,7 @@ def get_patient_encounter_items(person_id, date_from=None):
     UNION ALL
 
     SELECT
-        'Procedure',
+        'Procedure request',
         pr.encounter_id,
         pr.clinical_effective_date,
         COALESCE(pr.description, proc_concept.display),

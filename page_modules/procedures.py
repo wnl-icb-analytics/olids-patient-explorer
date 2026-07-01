@@ -92,4 +92,7 @@ def render_procedures():
         **height_kwargs
     )
 
-    st.caption("Status is only recorded for a subset of procedure requests in the source data")
+    st.caption(
+        "Procedure requests are planned/requested items (equivalent to the EMIS diary), "
+        "not procedures performed. Status is only recorded for a subset in the source data."
+    )
