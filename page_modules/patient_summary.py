@@ -47,16 +47,16 @@ def render_patient_summary():
 
     render_patient_header(patient)
 
+    # Allergies: safety-critical, always visible (small keyed query)
+    render_allergies_panel(person_id)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
     # Record summary: single combined aggregate query (the expensive bit)
     with st.spinner("Loading record summary..."):
         summary = get_record_summary(person_id)
 
     render_summary_metrics(summary)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Allergies: safety-critical, always loaded (small keyed query)
-    render_allergies_panel(person_id)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -90,7 +90,23 @@ def render_patient_summary():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Demographics details in tabs
+    # Long-term conditions summary
+    render_ltc_summary(person_id)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Health status & prevention (single-trip query over reporting marts)
+    render_health_status(person_id)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Problems section (loaded on demand)
+    render_problems_summary(person_id)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Demographic & registration detail last (clinical content first)
+    st.markdown("### Patient Details")
     tab1, tab2, tab3, tab4 = st.tabs(["👤 Core Demographics", "🏥 Registration", "📍 Geography", "🗣️ Language"])
 
     with tab1:
@@ -107,39 +123,41 @@ def render_patient_summary():
     with tab4:
         render_language_info(patient)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Long-term conditions summary
-    render_ltc_summary(person_id)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Health status & prevention (single-trip query over reporting marts)
-    render_health_status(person_id)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Problems section (loaded on demand)
-    render_problems_summary(person_id)
-
 
 def render_patient_header(patient):
     """
-    Render patient header with basic info.
+    Render a dense EPR-style patient banner.
 
     Args:
         patient: Patient demographics row
     """
-    # Get badge HTML
     badge_html = get_status_badge_html(
         patient['IS_ACTIVE'],
         patient['IS_DECEASED'],
         patient.get('INACTIVE_REASON')
     )
 
-    # Title with inline status badge
-    st.markdown(f"## Patient Record: {patient['SK_PATIENT_ID']} {badge_html}", unsafe_allow_html=True)
-    st.markdown(f"**Person ID:** {patient['PERSON_ID']}")
+    with st.container(border=True):
+        col1, col2, col3, col4 = st.columns([3, 2, 2, 3])
+
+        with col1:
+            st.markdown(f"### {patient['SK_PATIENT_ID']} {badge_html}", unsafe_allow_html=True)
+            st.caption(f"Person ID {patient['PERSON_ID']}")
+
+        with col2:
+            st.markdown(f"**{safe_str(patient['AGE'])}y · {safe_str(patient['GENDER'])}**")
+            born = f"Born {format_month_year(patient['BIRTH_DATE_APPROX'])}"
+            if patient['IS_DECEASED'] and pd.notna(patient['DEATH_DATE_APPROX']):
+                born += f" · Died {format_month_year(patient['DEATH_DATE_APPROX'])}"
+            st.caption(born)
+
+        with col3:
+            st.markdown(f"**{safe_str(patient['ETHNICITY_SUBCATEGORY'])}**")
+            st.caption(safe_str(patient['ETHNICITY_CATEGORY']))
+
+        with col4:
+            st.markdown(f"**{safe_str(patient['PRACTICE_NAME'])}**")
+            st.caption(f"{safe_str(patient['PRACTICE_CODE'])} · {safe_str(patient['PCN_NAME'])}")
 
 
 def render_summary_metrics(summary):
@@ -555,7 +573,8 @@ def render_health_status(person_id):
 
 def render_allergies_panel(person_id):
     """
-    Render allergies and intolerances.
+    Render allergies as a compact EPR-style status line: red inline list
+    when allergies exist (details in an expander), a single line otherwise.
 
     'No known allergy' records are statements of absence, so they are
     separated from actual allergy records rather than listed alongside
@@ -567,12 +586,10 @@ def render_allergies_panel(person_id):
     from services.record_service import get_patient_allergies
     from utils.helpers import format_practitioner_name
 
-    st.markdown("### ⚠️ Allergies & Intolerances")
-
     allergies = get_patient_allergies(person_id)
 
     if allergies.empty:
-        st.warning("No allergy information recorded for this patient")
+        st.markdown("**Allergies:** :orange[No allergy information recorded]")
         return
 
     # Statements of absence ('No known allergy', 'No known drug allergy', ...)
@@ -582,41 +599,49 @@ def render_allergies_panel(person_id):
 
     if actual.empty:
         latest_nka = format_date(nka['CLINICAL_EFFECTIVE_DATE'].max())
-        st.success(f"No known allergies (most recently recorded {latest_nka})")
+        st.markdown(f"**Allergies:** No known allergies · last recorded {latest_nka}")
         return
 
-    st.markdown(f"**{len(actual):,} allergy/intolerance record(s)**")
+    # Deduplicated names for the inline list; full records in the expander
+    names = []
+    for _, row in actual.iterrows():
+        name = ("🔒 " if row['IS_CONFIDENTIAL'] else "") + safe_str(row['ALLERGY_DISPLAY'])
+        if name not in names:
+            names.append(name)
 
-    display_df = actual.copy()
-    display_df['DATE_DISPLAY'] = display_df['CLINICAL_EFFECTIVE_DATE'].apply(format_date)
-    display_df['ALLERGY'] = display_df.apply(
-        lambda row: ("🔒 " if row['IS_CONFIDENTIAL'] else "") + safe_str(row['ALLERGY_DISPLAY']),
-        axis=1
-    )
-    display_df['PRACTITIONER'] = display_df.apply(
-        lambda row: format_practitioner_name(
-            row['PRACTITIONER_LAST_NAME'],
-            row['PRACTITIONER_FIRST_NAME'],
-            row['PRACTITIONER_TITLE']
-        ),
-        axis=1
-    )
+    st.markdown(f"**⚠️ Allergies:** :red[{', '.join(names)}]")
 
-    display_df = display_df[['DATE_DISPLAY', 'ALLERGY', 'PRACTITIONER']]
-    display_df.columns = ['Date', 'Allergy / Intolerance', 'Recorded By']
+    with st.expander(f"Allergy details ({len(actual):,} record(s))"):
+        display_df = actual.copy()
+        display_df['DATE_DISPLAY'] = display_df['CLINICAL_EFFECTIVE_DATE'].apply(format_date)
+        display_df['ALLERGY'] = display_df.apply(
+            lambda row: ("🔒 " if row['IS_CONFIDENTIAL'] else "") + safe_str(row['ALLERGY_DISPLAY']),
+            axis=1
+        )
+        display_df['PRACTITIONER'] = display_df.apply(
+            lambda row: format_practitioner_name(
+                row['PRACTITIONER_LAST_NAME'],
+                row['PRACTITIONER_FIRST_NAME'],
+                row['PRACTITIONER_TITLE']
+            ),
+            axis=1
+        )
 
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        hide_index=True
-    )
+        display_df = display_df[['DATE_DISPLAY', 'ALLERGY', 'PRACTITIONER']]
+        display_df.columns = ['Date', 'Allergy / Intolerance', 'Recorded By']
 
-    if display_df['Allergy / Intolerance'].str.startswith('🔒').any():
-        st.caption("🔒 marks records flagged confidential in the source system")
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True
+        )
 
-    if not nka.empty:
-        latest_nka = format_date(nka['CLINICAL_EFFECTIVE_DATE'].max())
-        st.caption(f"'No known allergy' was also recorded for this patient, most recently {latest_nka}")
+        if display_df['Allergy / Intolerance'].str.startswith('🔒').any():
+            st.caption("🔒 marks records flagged confidential in the source system")
+
+        if not nka.empty:
+            latest_nka = format_date(nka['CLINICAL_EFFECTIVE_DATE'].max())
+            st.caption(f"'No known allergy' was also recorded for this patient, most recently {latest_nka}")
 
 
 def format_problem_display(row):

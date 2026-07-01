@@ -16,6 +16,7 @@ from config import (
     TABLE_ALLERGY,
     TABLE_REFERRAL,
     TABLE_PROCEDURE_REQUEST,
+    TABLE_ORGANISATION,
     MAX_OBSERVATIONS,
 )
 from database import run_query
@@ -418,6 +419,9 @@ def get_patient_referrals(person_id):
         type_concept.display as referral_type,
         r.mode,
         r.is_outgoing_referral,
+        r.unique_booking_reference_number as ubrn,
+        req_org.name as requester_org,
+        rec_org.name as recipient_org,
         p.surname as practitioner_last_name,
         p.first_name as practitioner_first_name,
         p.title as practitioner_title,
@@ -429,6 +433,10 @@ def get_patient_referrals(person_id):
         ON r.referral_request_priority_source_concept_id = priority_concept.concept_id
     LEFT JOIN {TABLE_CONCEPT} type_concept
         ON r.referral_request_type_source_concept_id = type_concept.concept_id
+    LEFT JOIN {TABLE_ORGANISATION} req_org
+        ON r.requester_organisation_id = req_org.id
+    LEFT JOIN {TABLE_ORGANISATION} rec_org
+        ON r.recipient_organisation_id = rec_org.id
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON r.practitioner_id = p.id
     WHERE r.person_id = ?

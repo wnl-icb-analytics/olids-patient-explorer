@@ -52,21 +52,21 @@ def render_referrals():
 
     st.markdown(f"**Showing {len(referrals):,} referral(s)**")
 
+    def blank_if_missing(value):
+        return safe_str(value) if pd.notna(value) else ""
+
     display_df = referrals.copy()
     display_df['DATE_DISPLAY'] = display_df['CLINICAL_EFFECTIVE_DATE'].apply(format_date)
     display_df['REFERRAL'] = display_df['REFERRAL_DISPLAY'].apply(safe_str)
-    display_df['PRIORITY'] = display_df['PRIORITY'].apply(
-        lambda x: safe_str(x) if pd.notna(x) else ""
-    )
-    display_df['TYPE'] = display_df['REFERRAL_TYPE'].apply(
-        lambda x: safe_str(x) if pd.notna(x) else ""
-    )
-    display_df['MODE'] = display_df['MODE'].apply(
-        lambda x: safe_str(x) if pd.notna(x) else ""
-    )
+    display_df['PRIORITY'] = display_df['PRIORITY'].apply(blank_if_missing)
+    display_df['TYPE'] = display_df['REFERRAL_TYPE'].apply(blank_if_missing)
+    display_df['MODE'] = display_df['MODE'].apply(blank_if_missing)
     display_df['DIRECTION'] = display_df['IS_OUTGOING_REFERRAL'].apply(
         lambda x: "Outgoing" if x == True else ("Incoming" if x == False else "")
     )
+    display_df['FROM'] = display_df['REQUESTER_ORG'].apply(blank_if_missing)
+    display_df['TO'] = display_df['RECIPIENT_ORG'].apply(blank_if_missing)
+    display_df['UBRN'] = display_df['UBRN'].apply(blank_if_missing)
     display_df['PRACTITIONER'] = display_df.apply(
         lambda row: format_practitioner_name(
             row['PRACTITIONER_LAST_NAME'],
@@ -76,16 +76,24 @@ def render_referrals():
         axis=1
     )
 
-    display_df = display_df[[
-        'DATE_DISPLAY',
-        'REFERRAL',
-        'PRIORITY',
-        'TYPE',
-        'MODE',
-        'DIRECTION',
-        'PRACTITIONER'
-    ]]
-    display_df.columns = ['Date', 'Referral', 'Priority', 'Type', 'Mode', 'Direction', 'Practitioner']
+    # Drop optional columns with no data for this patient
+    columns = {
+        'DATE_DISPLAY': 'Date',
+        'REFERRAL': 'Referral',
+        'PRIORITY': 'Priority',
+        'TYPE': 'Type',
+        'MODE': 'Mode',
+        'DIRECTION': 'Direction',
+        'FROM': 'From',
+        'TO': 'To',
+        'UBRN': 'UBRN',
+        'PRACTITIONER': 'Practitioner',
+    }
+    optional = ['PRIORITY', 'TYPE', 'MODE', 'DIRECTION', 'FROM', 'TO', 'UBRN']
+    keep = [c for c in columns if c not in optional or (display_df[c] != "").any()]
+
+    display_df = display_df[keep]
+    display_df.columns = [columns[c] for c in keep]
 
     st.dataframe(
         display_df,
@@ -94,4 +102,4 @@ def render_referrals():
         height=600 if len(display_df) > 10 else None
     )
 
-    st.caption("Priority, type, mode and direction are only recorded for a subset of referrals in the source data")
+    st.caption("Priority, type, mode, direction, organisations and UBRN are only recorded for a subset of referrals in the source data; columns with no data for this patient are hidden")
