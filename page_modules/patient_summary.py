@@ -402,10 +402,9 @@ def render_ltc_summary(person_id):
             st.caption("Not on any condition register")
             return
 
-        # Domain groups in a flex layout: each sizes to its content, so
-        # small domains pack side by side and large ones take the width
-        # they need instead of wrapping inside a fixed half-width column
-        groups_html = ""
+        # Label-column grid: one row per domain, fixed-width labels so
+        # rows align, badges wrap freely in the content column
+        rows_html = ""
         for domain in sorted(ltc_data['CLINICAL_DOMAIN'].unique()):
             domain_conditions = ltc_data[ltc_data['CLINICAL_DOMAIN'] == domain]
 
@@ -416,18 +415,16 @@ def render_ltc_summary(person_id):
                 earliest = format_date(condition['EARLIEST_DIAGNOSIS_DATE'])
                 badges_html += f'<span class="condition-badge {qof_class}">{condition["CONDITION_NAME"]}{qof_badge} <small>· Dx {earliest}</small></span>'
 
-            # Bordered group per domain so groups stay visually distinct
-            # when they pack side by side (theme-neutral translucent grey)
-            groups_html += (
-                '<div style="display: flex; align-items: center; flex-wrap: wrap; '
-                'border: 1px solid rgba(128, 128, 128, 0.3); border-radius: 8px; '
-                'padding: 2px 10px;">'
-                f'<span style="font-weight: 600; margin-right: 8px; white-space: nowrap;">{domain}</span>'
+            rows_html += (
+                '<span style="font-weight: 600; padding-top: 10px;">'
+                f'{domain}</span>'
+                '<div style="display: flex; align-items: center; flex-wrap: wrap;">'
                 f'{badges_html}</div>'
             )
 
         st.markdown(
-            f'<div style="display: flex; flex-wrap: wrap; gap: 8px;">{groups_html}</div>',
+            '<div style="display: grid; grid-template-columns: 170px 1fr; '
+            f'row-gap: 4px; margin-bottom: 8px;">{rows_html}</div>',
             unsafe_allow_html=True
         )
 
