@@ -123,9 +123,12 @@ def render_results():
     display_df = display_df[['DATE_DISPLAY', 'VALUE', 'UNIT', 'PRACTITIONER']]
     display_df.columns = ['Date', 'Value', 'Unit', 'Recorded By']
 
+    # Only pass height when constraining: height=None is rejected by
+    # newer Streamlit versions
+    height_kwargs = {"height": 400} if len(display_df) > 10 else {}
     st.dataframe(
         display_df,
         use_container_width=True,
         hide_index=True,
-        height=400 if len(display_df) > 10 else None
+        **height_kwargs
     )

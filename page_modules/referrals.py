@@ -95,11 +95,14 @@ def render_referrals():
     display_df = display_df[keep]
     display_df.columns = [columns[c] for c in keep]
 
+    # Only pass height when constraining: height=None is rejected by
+    # newer Streamlit versions
+    height_kwargs = {"height": 600} if len(display_df) > 10 else {}
     st.dataframe(
         display_df,
         use_container_width=True,
         hide_index=True,
-        height=600 if len(display_df) > 10 else None
+        **height_kwargs
     )
 
     st.caption("Priority, type, mode, direction, organisations and UBRN are only recorded for a subset of referrals in the source data; columns with no data for this patient are hidden")

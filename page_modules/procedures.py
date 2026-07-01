@@ -81,11 +81,14 @@ def render_procedures():
     ]]
     display_df.columns = ['Date', 'Procedure', 'Status', 'Practitioner']
 
+    # Only pass height when constraining: height=None is rejected by
+    # newer Streamlit versions
+    height_kwargs = {"height": 600} if len(display_df) > 10 else {}
     st.dataframe(
         display_df,
         use_container_width=True,
         hide_index=True,
-        height=600 if len(display_df) > 10 else None
+        **height_kwargs
     )
 
     st.caption("Status is only recorded for a subset of procedure requests in the source data")
