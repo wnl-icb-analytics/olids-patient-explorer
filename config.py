@@ -60,6 +60,12 @@ PAGE_CONFIG = {
     "initial_sidebar_state": "collapsed"
 }
 
+# Audit notice shown as a fixed footer on entry pages
+AUDIT_FOOTER_HTML = (
+    '<div class="audit-footer">⚠️ Use of this application is audited. '
+    'Access patient records only for legitimate healthcare purposes.</div>'
+)
+
 # Query limits
 MAX_OBSERVATIONS = 10000
 
@@ -219,11 +225,11 @@ CUSTOM_CSS = """
         left: 0;
         right: 0;
         text-align: center;
-        padding: 12px 16px;
-        font-size: 0.95rem;
-        font-weight: 600;
-        background: #b45309;
-        color: #ffffff;
+        padding: 10px 16px;
+        font-size: 0.9rem;
+        background: rgba(180, 83, 9, 0.18);
+        border-top: 1px solid rgba(180, 83, 9, 0.45);
+        backdrop-filter: blur(6px);
         z-index: 999;
     }
 </style>

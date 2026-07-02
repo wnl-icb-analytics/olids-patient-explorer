@@ -88,6 +88,11 @@ def render_patient_summary():
     with tab4:
         render_language_info(patient)
 
+    # Audit notice (spacer stops the fixed footer covering the last section)
+    from config import AUDIT_FOOTER_HTML
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown(AUDIT_FOOTER_HTML, unsafe_allow_html=True)
+
     # Deferred: the problems query runs after the whole page has painted
     # and fills its tab in place. Tab switches are client-side, so the
     # content must be rendered within this same run.
