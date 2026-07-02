@@ -76,7 +76,7 @@ def render_search():
 
     # Audit notice
     st.markdown(
-        '<div class="audit-footer">Use of this application is audited. '
+        '<div class="audit-footer">⚠️ Use of this application is audited. '
         'Access patient records only for legitimate healthcare purposes.</div>',
         unsafe_allow_html=True
     )

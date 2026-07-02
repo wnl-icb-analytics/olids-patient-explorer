@@ -219,10 +219,11 @@ CUSTOM_CSS = """
         left: 0;
         right: 0;
         text-align: center;
-        padding: 10px 16px;
-        font-size: 0.85rem;
-        background: rgba(128, 128, 128, 0.12);
-        backdrop-filter: blur(4px);
+        padding: 12px 16px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        background: #b45309;
+        color: #ffffff;
         z-index: 999;
     }
 </style>
