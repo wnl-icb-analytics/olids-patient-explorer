@@ -749,6 +749,39 @@ def render_problems_table(problems):
     )
 
 
+def kdigo_stage(egfr_value, acr_value):
+    """
+    Format eGFR and ACR values as a KDIGO G/A stage, e.g. 'G2 A1'.
+    Bands: G1 >=90, G2 60-89, G3a 45-59, G3b 30-44, G4 15-29, G5 <15;
+    A1 <3, A2 3-30, A3 >30 (mg/mmol). Partial when only one value exists.
+
+    Returns:
+        Stage string, or None when neither value is present
+    """
+    parts = []
+    if pd.notna(egfr_value):
+        if egfr_value >= 90:
+            parts.append("G1")
+        elif egfr_value >= 60:
+            parts.append("G2")
+        elif egfr_value >= 45:
+            parts.append("G3a")
+        elif egfr_value >= 30:
+            parts.append("G3b")
+        elif egfr_value >= 15:
+            parts.append("G4")
+        else:
+            parts.append("G5")
+    if pd.notna(acr_value):
+        if acr_value < 3:
+            parts.append("A1")
+        elif acr_value <= 30:
+            parts.append("A2")
+        else:
+            parts.append("A3")
+    return " ".join(parts) if parts else None
+
+
 def render_key_results_tab(person_id):
     """
     Render latest key results from the curated biomarker models.
@@ -796,7 +829,7 @@ def render_key_results_tab(person_id):
         ("eGFR", fmt(b['EGFR_VALUE'], "{:.0f} mL/min/1.73m²"), _value_or(b['EGFR_CKD_STAGE'], ""), b['EGFR_DATE']),
         ("Creatinine", fmt(b['CREATININE_VALUE'], "{:.0f} µmol/L"), _value_or(b['CREATININE_CATEGORY'], ""), b['CREATININE_DATE']),
         ("Urine ACR", fmt(b['ACR_VALUE'], "{:.1f} mg/mmol"), _value_or(b['ACR_CATEGORY'], ""), b['ACR_DATE']),
-        ("CKD (labs)", _value_or(b['CKD_STAGE_INFERRED'], None), ckd_interp, b['CKD_DATE']),
+        ("CKD stage (labs, KDIGO)", kdigo_stage(b['CKD_EGFR_VALUE'], b['CKD_ACR_VALUE']), ckd_interp, b['CKD_DATE']),
         ("Haemoglobin", fmt_unit(b['HB_VALUE'], b['HB_UNIT']), _value_or(b['HB_CATEGORY'], ""), b['HB_DATE']),
         ("Platelets", fmt_unit(b['PLATELETS_VALUE'], b['PLATELETS_UNIT']), _value_or(b['PLATELETS_CATEGORY'], ""), b['PLATELETS_DATE']),
         ("Eosinophils", fmt_unit(b['EOS_VALUE'], b['EOS_UNIT'], "{:.2f}"), _value_or(b['EOS_CATEGORY'], ""), b['EOS_DATE']),
