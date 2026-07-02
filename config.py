@@ -218,7 +218,9 @@ CUSTOM_CSS = """
         border: 1px solid #dee2e6;
     }
 
-    /* Audit notice pinned to the bottom of the viewport */
+    /* Audit notice pinned to the bottom of the viewport. Uses the active
+       Streamlit theme's secondary background so it works in dark and
+       light mode; amber-600 text is readable on both. */
     .audit-footer {
         position: fixed;
         bottom: 0;
@@ -227,9 +229,9 @@ CUSTOM_CSS = """
         text-align: center;
         padding: 9px 16px;
         font-size: 0.85rem;
-        background: #1a1c22;
-        color: #e8973f;
-        border-top: 1px solid rgba(232, 151, 63, 0.35);
+        background: var(--secondary-background-color, #1a1c22);
+        color: #d97706;
+        border-top: 1px solid rgba(217, 119, 6, 0.35);
         z-index: 999;
     }
 </style>
