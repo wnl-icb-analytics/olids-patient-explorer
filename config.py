@@ -211,5 +211,19 @@ CUSTOM_CSS = """
         color: #495057;
         border: 1px solid #dee2e6;
     }
+
+    /* Audit notice pinned to the bottom of the viewport */
+    .audit-footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        text-align: center;
+        padding: 10px 16px;
+        font-size: 0.85rem;
+        background: rgba(128, 128, 128, 0.12);
+        backdrop-filter: blur(4px);
+        z-index: 999;
+    }
 </style>
 """

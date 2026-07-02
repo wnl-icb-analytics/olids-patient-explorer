@@ -1,5 +1,10 @@
 """
 Patient records service for observations, medications, appointments and problems
+
+Patient identifiers are validated integers inlined as SQL literals
+(injection-safe) so Snowflake query history records which patient was
+accessed - bind placeholders would hide the value from the audit trail.
+Free-text input is always bound.
 """
 
 import streamlit as st
@@ -67,6 +72,8 @@ def get_record_summary(person_id):
     Returns:
         Dictionary with summary stats (EMPTY_RECORD_SUMMARY keys)
     """
+    pid = int(person_id)
+
     query = f"""
     SELECT
         obs.total_observations,
@@ -90,7 +97,7 @@ def get_record_summary(person_id):
             MIN(clinical_effective_date) as obs_earliest,
             MAX(clinical_effective_date) as obs_most_recent
         FROM {TABLE_OBSERVATION}
-        WHERE person_id = ?
+        WHERE person_id = {pid}
     ) obs
     CROSS JOIN (
         SELECT
@@ -108,7 +115,7 @@ def get_record_summary(person_id):
         FROM {TABLE_MEDICATION_ORDER} m
         LEFT JOIN {TABLE_MEDICATION_STATEMENT} ms
             ON m.medication_statement_id = ms.id
-        WHERE m.person_id = ?
+        WHERE m.person_id = {pid}
     ) med
     CROSS JOIN (
         SELECT
@@ -120,33 +127,32 @@ def get_record_summary(person_id):
                 THEN 1
             END) as appointments_last_12m
         FROM {TABLE_APPOINTMENT}
-        WHERE person_id = ?
+        WHERE person_id = {pid}
     ) appt
     CROSS JOIN (
         SELECT COUNT(*) as total_referrals
         FROM {TABLE_REFERRAL}
-        WHERE person_id = ?
+        WHERE person_id = {pid}
     ) ref
     CROSS JOIN (
         SELECT COUNT(*) as total_procedures
         FROM {TABLE_PROCEDURE_REQUEST}
-        WHERE person_id = ?
+        WHERE person_id = {pid}
     ) proc
     CROSS JOIN (
         SELECT COUNT(*) as total_encounters
         FROM {TABLE_ENCOUNTER}
-        WHERE person_id = ?
+        WHERE person_id = {pid}
     ) enc
     CROSS JOIN (
         SELECT COUNT(*) as total_test_requests
         FROM {TABLE_DIAGNOSTIC_ORDER}
-        WHERE person_id = ?
+        WHERE person_id = {pid}
     ) diag
     """
 
     try:
-        pid = int(person_id)
-        result = run_query(query, [pid, pid, pid, pid, pid, pid, pid])
+        result = run_query(query)
         if result.empty:
             return dict(EMPTY_RECORD_SUMMARY)
 
@@ -186,8 +192,8 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
     Returns:
         DataFrame with observations
     """
-    where_clauses = ["o.person_id = ?"]
-    params = [int(person_id)]
+    where_clauses = [f"o.person_id = {int(person_id)}"]
+    params = []
 
     if date_from:
         where_clauses.append("o.clinical_effective_date >= ?")
@@ -234,7 +240,7 @@ def get_patient_observations(person_id, date_from=None, date_to=None, search_ter
     """
 
     try:
-        return run_query(query, params)
+        return run_query(query, params or None)
     except Exception as e:
         st.error(f"Error loading observations: {str(e)}")
         return pd.DataFrame()
@@ -254,8 +260,8 @@ def get_patient_medications(person_id, date_from=None, date_to=None, search_term
     Returns:
         DataFrame with medications
     """
-    where_clauses = ["m.person_id = ?"]
-    params = [int(person_id)]
+    where_clauses = [f"m.person_id = {int(person_id)}"]
+    params = []
 
     if date_from:
         where_clauses.append("m.clinical_effective_date >= ?")
@@ -320,7 +326,7 @@ def get_patient_medications(person_id, date_from=None, date_to=None, search_term
     """
 
     try:
-        return run_query(query, params)
+        return run_query(query, params or None)
     except Exception as e:
         st.error(f"Error loading medications: {str(e)}")
         return pd.DataFrame()
@@ -362,8 +368,8 @@ def get_patient_appointments(person_id, date_from=None, date_to=None, include_fu
     Returns:
         DataFrame with appointments
     """
-    where_clauses = ["a.person_id = ?"]
-    params = [int(person_id)]
+    where_clauses = [f"a.person_id = {int(person_id)}"]
+    params = []
 
     if date_from:
         if include_future:
@@ -406,7 +412,7 @@ def get_patient_appointments(person_id, date_from=None, date_to=None, include_fu
     """
 
     try:
-        return run_query(query, params)
+        return run_query(query, params or None)
     except Exception as e:
         st.error(f"Error loading appointments: {str(e)}")
         return pd.DataFrame()
@@ -442,12 +448,12 @@ def get_patient_allergies(person_id):
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON a.practitioner_id = p.id
     {PRACTITIONER_ROLE_JOIN}
-    WHERE a.person_id = ?
+    WHERE a.person_id = {int(person_id)}
     ORDER BY a.clinical_effective_date DESC
     """
 
     try:
-        return run_query(query, [int(person_id)])
+        return run_query(query)
     except Exception as e:
         st.error(f"Error loading allergies: {str(e)}")
         return pd.DataFrame()
@@ -497,13 +503,13 @@ def get_patient_referrals(person_id):
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON r.practitioner_id = p.id
     {PRACTITIONER_ROLE_JOIN}
-    WHERE r.person_id = ?
+    WHERE r.person_id = {int(person_id)}
     ORDER BY r.clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
     """
 
     try:
-        return run_query(query, [int(person_id)])
+        return run_query(query)
     except Exception as e:
         st.error(f"Error loading referrals: {str(e)}")
         return pd.DataFrame()
@@ -538,13 +544,13 @@ def get_patient_procedures(person_id):
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON pr.practitioner_id = p.id
     {PRACTITIONER_ROLE_JOIN}
-    WHERE pr.person_id = ?
+    WHERE pr.person_id = {int(person_id)}
     ORDER BY pr.clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
     """
 
     try:
-        return run_query(query, [int(person_id)])
+        return run_query(query)
     except Exception as e:
         st.error(f"Error loading procedures: {str(e)}")
         return pd.DataFrame()
@@ -561,8 +567,8 @@ def get_patient_encounters(person_id, date_from=None):
     Returns:
         DataFrame with encounters
     """
-    where_clauses = ["e.person_id = ?"]
-    params = [int(person_id)]
+    where_clauses = [f"e.person_id = {int(person_id)}"]
+    params = []
 
     if date_from:
         where_clauses.append("e.clinical_effective_date >= ?")
@@ -598,7 +604,7 @@ def get_patient_encounters(person_id, date_from=None):
     """
 
     try:
-        return run_query(query, params)
+        return run_query(query, params or None)
     except Exception as e:
         st.error(f"Error loading consultations: {str(e)}")
         return pd.DataFrame()
@@ -620,7 +626,7 @@ def get_patient_encounter_items(person_id, date_from=None):
     """
     pid = int(person_id)
     date_filter = ""
-    branch_params = [pid]
+    branch_params = []
     if date_from:
         date_filter = "AND clinical_effective_date >= ?"
         branch_params.append(str(date_from))
@@ -638,7 +644,7 @@ def get_patient_encounter_items(person_id, date_from=None):
         END as detail_value,
         is_confidential
     FROM {TABLE_OBSERVATION}
-    WHERE person_id = ? {date_filter}
+    WHERE person_id = {pid} {date_filter}
 
     UNION ALL
 
@@ -650,7 +656,7 @@ def get_patient_encounter_items(person_id, date_from=None):
         dose,
         is_confidential
     FROM {TABLE_MEDICATION_ORDER}
-    WHERE person_id = ? {date_filter}
+    WHERE person_id = {pid} {date_filter}
 
     UNION ALL
 
@@ -666,7 +672,7 @@ def get_patient_encounter_items(person_id, date_from=None):
         ON r.referral_request_source_concept_id = referral_concept.concept_id
     LEFT JOIN {TABLE_CONCEPT} priority_concept
         ON r.referral_request_priority_source_concept_id = priority_concept.concept_id
-    WHERE r.person_id = ? {date_filter.replace('clinical_effective_date', 'r.clinical_effective_date')}
+    WHERE r.person_id = {pid} {date_filter.replace('clinical_effective_date', 'r.clinical_effective_date')}
 
     UNION ALL
 
@@ -682,7 +688,7 @@ def get_patient_encounter_items(person_id, date_from=None):
         ON pr.procedure_request_source_concept_id = proc_concept.concept_id
     LEFT JOIN {TABLE_CONCEPT} status_concept
         ON pr.status_source_concept_id = status_concept.concept_id
-    WHERE pr.person_id = ? {date_filter.replace('clinical_effective_date', 'pr.clinical_effective_date')}
+    WHERE pr.person_id = {pid} {date_filter.replace('clinical_effective_date', 'pr.clinical_effective_date')}
 
     UNION ALL
 
@@ -699,14 +705,14 @@ def get_patient_encounter_items(person_id, date_from=None):
     FROM {TABLE_DIAGNOSTIC_ORDER} d
     LEFT JOIN {TABLE_CONCEPT} test_concept
         ON d.diagnostic_order_source_concept_id = test_concept.concept_id
-    WHERE d.person_id = ? {date_filter.replace('clinical_effective_date', 'd.clinical_effective_date')}
+    WHERE d.person_id = {pid} {date_filter.replace('clinical_effective_date', 'd.clinical_effective_date')}
 
     ORDER BY clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
     """
 
     try:
-        return run_query(query, branch_params * 5)
+        return run_query(query, branch_params * 5 or None)
     except Exception as e:
         st.error(f"Error loading consultation items: {str(e)}")
         return pd.DataFrame()
@@ -746,13 +752,13 @@ def get_patient_test_requests(person_id):
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON d.practitioner_id = p.id
     {PRACTITIONER_ROLE_JOIN}
-    WHERE d.person_id = ?
+    WHERE d.person_id = {int(person_id)}
     ORDER BY d.clinical_effective_date DESC
     LIMIT {MAX_OBSERVATIONS}
     """
 
     try:
-        return run_query(query, [int(person_id)])
+        return run_query(query)
     except Exception as e:
         st.error(f"Error loading test requests: {str(e)}")
         return pd.DataFrame()
@@ -775,7 +781,7 @@ def get_patient_result_types(person_id):
         COUNT(*) as result_count,
         MAX(clinical_effective_date) as latest_date
     FROM {TABLE_OBSERVATION}
-    WHERE person_id = ?
+    WHERE person_id = {int(person_id)}
         AND result_value IS NOT NULL
         AND mapped_concept_display IS NOT NULL
     GROUP BY mapped_concept_display
@@ -783,7 +789,7 @@ def get_patient_result_types(person_id):
     """
 
     try:
-        return run_query(query, [int(person_id)])
+        return run_query(query)
     except Exception as e:
         st.error(f"Error loading result types: {str(e)}")
         return pd.DataFrame()
@@ -814,7 +820,7 @@ def get_patient_result_series(person_id, result_display):
     LEFT JOIN {TABLE_PRACTITIONER} p
         ON o.practitioner_id = p.id
     {PRACTITIONER_ROLE_JOIN}
-    WHERE o.person_id = ?
+    WHERE o.person_id = {int(person_id)}
         AND o.result_value IS NOT NULL
         AND o.mapped_concept_display = ?
     ORDER BY o.clinical_effective_date DESC
@@ -822,7 +828,7 @@ def get_patient_result_series(person_id, result_display):
     """
 
     try:
-        return run_query(query, [int(person_id), str(result_display)])
+        return run_query(query, [str(result_display)])
     except Exception as e:
         st.error(f"Error loading result history: {str(e)}")
         return pd.DataFrame()
@@ -858,7 +864,7 @@ def get_patient_problems(person_id):
     {PRACTITIONER_ROLE_JOIN}
     LEFT JOIN {TABLE_CONCEPT} episodicity_concept
         ON o.episodicity_source_concept_id = episodicity_concept.concept_id
-    WHERE o.person_id = ?
+    WHERE o.person_id = {int(person_id)}
         AND o.is_problem = TRUE
         AND (o.is_problem_deleted IS NULL OR o.is_problem_deleted = FALSE)
     ORDER BY o.clinical_effective_date DESC
@@ -866,7 +872,7 @@ def get_patient_problems(person_id):
     """
 
     try:
-        return run_query(query, [int(person_id)])
+        return run_query(query)
     except Exception as e:
         st.error(f"Error loading problems: {str(e)}")
         return pd.DataFrame()

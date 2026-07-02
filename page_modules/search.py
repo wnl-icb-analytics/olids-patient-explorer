@@ -74,6 +74,13 @@ def render_search():
         - Click **View Record** on a result to view the patient's complete record
         """)
 
+    # Audit notice
+    st.markdown(
+        '<div class="audit-footer">Use of this application is audited. '
+        'Access patient records only for legitimate healthcare purposes.</div>',
+        unsafe_allow_html=True
+    )
+
 
 def render_patient_card(patient_row):
     """

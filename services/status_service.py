@@ -1,5 +1,9 @@
 """
 Person-level health status service (reporting-layer analytics marts)
+
+Patient identifiers are validated integers inlined as SQL literals
+(injection-safe) so Snowflake query history records which patient was
+accessed - bind placeholders would hide the value from the audit trail.
 """
 
 import streamlit as st
@@ -33,6 +37,8 @@ def get_person_health_status(person_id):
     Returns:
         Single-row Series of prefixed columns, or None on failure
     """
+    pid = int(person_id)
+
     query = f"""
     SELECT
         brf.bmi_category                as brf_bmi_category,
@@ -94,7 +100,7 @@ def get_person_health_status(person_id):
         shingles.campaign               as shingles_campaign,
         shingles.vaccination_status     as shingles_status,
         shingles.vaccination_date       as shingles_date
-    FROM (SELECT ? as person_id) k
+    FROM (SELECT {pid} as person_id) k
     LEFT JOIN {TABLE_RISK_FACTORS} brf
         ON brf.person_id = k.person_id
     LEFT JOIN {TABLE_POLYPHARMACY} poly
@@ -104,7 +110,7 @@ def get_person_health_status(person_id):
     LEFT JOIN (
         SELECT person_id, cambridge_comorbidity_score, last_updated
         FROM {TABLE_CCMS}
-        WHERE person_id = ?
+        WHERE person_id = {pid}
         QUALIFY ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY last_updated DESC) = 1
     ) ccms ON ccms.person_id = k.person_id
     LEFT JOIN {DB_OBSERVATIONS}.INT_EFI_LATEST efi
@@ -116,7 +122,7 @@ def get_person_health_status(person_id):
     LEFT JOIN (
         SELECT person_id, audit_score, audit_type, risk_category
         FROM {DB_OBSERVATIONS}.INT_ALCOHOL_AUDIT_SCORES
-        WHERE person_id = ?
+        WHERE person_id = {pid}
             AND is_valid_score
         QUALIFY ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY clinical_effective_date DESC) = 1
     ) audit ON audit.person_id = k.person_id
@@ -129,27 +135,25 @@ def get_person_health_status(person_id):
     LEFT JOIN (
         SELECT person_id, campaign, vaccination_status, vaccination_date
         FROM {TABLE_PNEUMOCOCCAL}
-        WHERE person_id = ?
+        WHERE person_id = {pid}
         QUALIFY ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY campaign DESC) = 1
     ) pneumo ON pneumo.person_id = k.person_id
     LEFT JOIN (
         SELECT person_id, eligible, campaign, vaccination_status, vaccination_date
         FROM {TABLE_RSV}
-        WHERE person_id = ?
+        WHERE person_id = {pid}
         QUALIFY ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY campaign DESC) = 1
     ) rsv ON rsv.person_id = k.person_id
     LEFT JOIN (
         SELECT person_id, eligible, campaign, vaccination_status, vaccination_date
         FROM {TABLE_SHINGLES}
-        WHERE person_id = ?
+        WHERE person_id = {pid}
         QUALIFY ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY campaign DESC) = 1
     ) shingles ON shingles.person_id = k.person_id
     """
 
     try:
-        pid = int(person_id)
-        # Binds in query order: anchor, ccms, audit, pneumo, rsv, shingles
-        result = run_query(query, [pid, pid, pid, pid, pid, pid])
+        result = run_query(query)
         if result.empty:
             return None
         return result.iloc[0]
@@ -170,6 +174,8 @@ def get_person_biomarkers(person_id):
     Returns:
         Single-row Series of prefixed columns, or None on failure
     """
+    pid = int(person_id)
+
     query = f"""
     SELECT
         hba1c.hba1c_display                 as hba1c_value,
@@ -223,7 +229,7 @@ def get_person_biomarkers(person_id):
         qrisk.qrisk_type                    as qrisk_type,
         qrisk.cvd_risk_category             as qrisk_category,
         qrisk.clinical_effective_date       as qrisk_date
-    FROM (SELECT ? as person_id) k
+    FROM (SELECT {pid} as person_id) k
     LEFT JOIN {DB_OBSERVATIONS}.INT_HBA1C_LATEST hba1c
         ON hba1c.person_id = k.person_id
     LEFT JOIN {DB_OBSERVATIONS}.INT_CHOLESTEROL_LATEST chol
@@ -253,7 +259,7 @@ def get_person_biomarkers(person_id):
     """
 
     try:
-        result = run_query(query, [int(person_id)])
+        result = run_query(query)
         if result.empty:
             return None
         return result.iloc[0]

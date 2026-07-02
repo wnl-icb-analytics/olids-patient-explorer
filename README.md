@@ -30,8 +30,12 @@ Streamlit application for exploring individual patient records from OLIDS data, 
 - **Procedures**: Procedure requests with status
 
 Records flagged `is_confidential` in the source are marked with 🔒.
-Query results are cached (10 min TTL) and all user input is bound as query
-parameters.
+Query results are cached (10 min TTL). Free-text input is bound as query
+parameters; patient identifiers are validated integers inlined as SQL
+literals so Snowflake query history records which patient each query
+accessed (bind placeholders would hide the value from the audit trail).
+Use of the app is audited via account query history; a notice on the
+search page says so.
 
 ## Project Structure
 

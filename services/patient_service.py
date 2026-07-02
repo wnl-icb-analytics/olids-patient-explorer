@@ -1,5 +1,10 @@
 """
 Patient search and demographics service
+
+Patient identifiers are validated integers inlined as SQL literals
+(injection-safe) so Snowflake query history records which patient was
+accessed - bind placeholders would hide the value from the audit trail.
+Free-text input is always bound.
 """
 
 import streamlit as st
@@ -38,11 +43,11 @@ def search_patient(search_term):
         pcn_name,
         ethnicity_subcategory
     FROM {TABLE_DIM_PERSON}
-    WHERE sk_patient_id = ? OR person_id = ?
+    WHERE sk_patient_id = {search_int} OR person_id = {search_int}
     """
 
     try:
-        return run_query(query, [search_int, search_int])
+        return run_query(query)
     except Exception as e:
         st.error(f"Error searching for patient: {str(e)}")
         return pd.DataFrame()
@@ -61,11 +66,11 @@ def get_patient_demographics(sk_patient_id):
     query = f"""
     SELECT *
     FROM {TABLE_DIM_PERSON}
-    WHERE sk_patient_id = ?
+    WHERE sk_patient_id = {int(sk_patient_id)}
     """
 
     try:
-        result = run_query(query, [int(sk_patient_id)])
+        result = run_query(query)
         if result.empty:
             st.error(f"Patient {sk_patient_id} not found")
         return result
@@ -87,12 +92,12 @@ def get_person_id(sk_patient_id):
     query = f"""
     SELECT person_id
     FROM {TABLE_DIM_PERSON}
-    WHERE sk_patient_id = ?
+    WHERE sk_patient_id = {int(sk_patient_id)}
     LIMIT 1
     """
 
     try:
-        result = run_query(query, [int(sk_patient_id)])
+        result = run_query(query)
         if result.empty:
             return None
         return int(result.iloc[0]["PERSON_ID"])
@@ -128,12 +133,12 @@ def get_patient_registration_history(person_id):
         borough_resident,
         local_authority_name
     FROM {TABLE_DIM_PERSON_HISTORICAL}
-    WHERE person_id = ?
+    WHERE person_id = {int(person_id)}
     ORDER BY effective_start_date DESC
     """
 
     try:
-        return run_query(query, [int(person_id)])
+        return run_query(query)
     except Exception as e:
         st.warning(f"Could not load registration history: {str(e)}")
         return pd.DataFrame()
@@ -159,7 +164,7 @@ def get_patient_ltc_summary(person_id):
         earliest_diagnosis_date,
         latest_diagnosis_date
     FROM {TABLE_LTC_SUMMARY}
-    WHERE person_id = ?
+    WHERE person_id = {int(person_id)}
         AND is_on_register = TRUE
     ORDER BY
         is_qof DESC,
@@ -168,7 +173,7 @@ def get_patient_ltc_summary(person_id):
     """
 
     try:
-        return run_query(query, [int(person_id)])
+        return run_query(query)
     except Exception as e:
         st.warning(f"Could not load LTC summary: {str(e)}")
         return pd.DataFrame()
