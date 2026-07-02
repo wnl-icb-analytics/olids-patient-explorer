@@ -62,7 +62,7 @@ PAGE_CONFIG = {
 
 # Audit notice shown as a fixed footer on entry pages
 AUDIT_FOOTER_HTML = (
-    '<div class="audit-footer">⚠️ Use of this application is audited. '
+    '<div class="audit-footer">Use of this application is audited. '
     'Access patient records only for legitimate healthcare purposes.</div>'
 )
 
@@ -225,11 +225,11 @@ CUSTOM_CSS = """
         left: 0;
         right: 0;
         text-align: center;
-        padding: 10px 16px;
-        font-size: 0.9rem;
-        background: rgba(180, 83, 9, 0.18);
-        border-top: 1px solid rgba(180, 83, 9, 0.45);
-        backdrop-filter: blur(6px);
+        padding: 9px 16px;
+        font-size: 0.85rem;
+        background: #1a1c22;
+        color: #e8973f;
+        border-top: 1px solid rgba(232, 151, 63, 0.35);
         z-index: 999;
     }
 </style>
